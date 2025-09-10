@@ -6,8 +6,6 @@ class Settings(BaseSettings):
     llm_provider: str
     ollama_base_url: str
     ollama_model: str
-    openai_api_key: Optional[str]
-    openai_model: Optional[str]
     
     # Vector Store Configuration
     vector_backend: str
