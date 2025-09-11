@@ -68,7 +68,7 @@ pip install -r requirements.txt
 
 ### 5. Run Application
 ```bash
-python -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8090
+python -m uvicorn app.main:app --host 0.0.0.0 --port 8090
 ```
 
 ## Access Points

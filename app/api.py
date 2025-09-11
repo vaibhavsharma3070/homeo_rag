@@ -470,6 +470,7 @@ async def test_llm():
     """Test LLM connection and functionality."""
     try:
         result = rag_pipeline.test_llm_connection()
+        print(result)
         return LLMTestResponse(**result)
         
     except Exception as e:

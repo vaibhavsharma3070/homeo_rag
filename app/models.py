@@ -65,6 +65,7 @@ class LLMTestResponse(BaseModel):
     """Response model for LLM connection test."""
     status: str
     provider: str
+    model:str
     test_successful: Optional[bool] = None
     test_response: Optional[str] = None
     error: Optional[str] = None

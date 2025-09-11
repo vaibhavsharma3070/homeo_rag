@@ -717,11 +717,11 @@
                             <div class="stat-label">🧩 Total Chunks</div>
                         </div>
                         <div class="stat-card">
-                            <span class="stat-number">${result.total_embeddings}</span>
+                            <span class="stat-number">${result.embedding_dimension}</span>
                             <div class="stat-label">🔗 Total Embeddings</div>
                         </div>
                         <div class="stat-card">
-                            <span class="stat-number">${(result.index_size_mb || 0).toFixed(1)} MB</span>
+                            <span class="stat-number">${(result.index_size || 0).toFixed(1)} MB</span>
                             <div class="stat-label">💾 Index Size</div>
                         </div>
                     `;
@@ -746,14 +746,14 @@
             try {
                 const response = await fetch(`${API_BASE}/api/llm-test`);
                 const result = await response.json();
-                
-                if (result.status === 'success') {
+                console.log(result)
+                if (result.status === 'connected' && result.test_successful) {
                     responseArea.innerHTML = `
                         <div style="color: #22543d; background: #c6f6d5; padding: 15px; border-radius: 8px;">
                             <strong>✅ LLM Connection Successful!</strong><br>
                             🤖 Provider: ${result.provider}<br>
                             ⚡ Model: ${result.model || 'Unknown'}<br>
-                            ${result.response ? `💬 Test Response: "${result.response}"` : ''}
+                            💬 Test Response: "${result.test_response}"
                         </div>
                     `;
                 } else {

@@ -99,7 +99,7 @@ class OllamaConnector(LLMConnector):
                 return ""
 
             cleaned = self._clean_response(text)
-            print('res :-',cleaned)
+            # print('res :-',cleaned)
             logger.info(f"Ollama response received: {len(cleaned)} chars")
             return cleaned
 
