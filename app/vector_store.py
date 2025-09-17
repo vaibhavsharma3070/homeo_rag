@@ -303,11 +303,16 @@ class PGVectorStore:
         return result['success']
 
     def search(self, query: str, top_k: int = 5) -> List[Dict[str, Any]]:
-        """Search documents (unchanged from original)."""
+        """Hybrid search: semantic vector search + per-word keyword search with IDF weighting."""
+        import re, math
+
         try:
+            results = {}
+
+            # --------- 1️⃣ Semantic search (vector search) ---------
             query_vec = self.embedding_model.encode([query], convert_to_tensor=False)[0].tolist()
             with self.SessionLocal() as session:
-                stmt = (
+                semantic_stmt = (
                     select(
                         self.EmbeddingData,
                         (1 - self.EmbeddingData.embedding.cosine_distance(query_vec)).label('similarity_score')
@@ -315,13 +320,11 @@ class PGVectorStore:
                     .order_by(self.EmbeddingData.embedding.cosine_distance(query_vec))
                     .limit(top_k)
                 )
-                rows = session.execute(stmt).all()
-                results = []
-                for row in rows:
+                semantic_rows = session.execute(semantic_stmt).all()
+                for row in semantic_rows:
                     embedding_data = row[0]
                     similarity_score = float(row[1]) if row[1] is not None else 0.0
-                    
-                    results.append({
+                    results[embedding_data.id] = {
                         'chunk_id': embedding_data.id,
                         'document_id': embedding_data.id,
                         'filename': embedding_data.filename,
@@ -331,11 +334,65 @@ class PGVectorStore:
                             'chunk_index': embedding_data.chunk_index,
                             'document_metadata': embedding_data.document_metadata,
                         }
-                    })
-                return results
+                    }
+
+            # --------- 2️⃣ Per-word keyword search (TF-IDF style weighting) ---------
+            query_tokens = re.findall(r'\w+', query.lower())
+
+            # Expanded stopword list + min length filter
+            stopwords = set([
+                'the','of','and','in','on','for','a','an','with','to','is',
+                'what','who','when','where','which','how','why','this','that',
+                'by','as','at','be','or','from','it','are','was','were','can'
+            ])
+            keywords = [t for t in query_tokens if t not in stopwords and len(t) >= 3]
+
+            with self.SessionLocal() as session:
+                # Count total chunks (for IDF)
+                total_chunks = session.query(self.EmbeddingData).count()
+
+                keyword_counts = {}
+                for token in keywords:
+                    stmt = select(self.EmbeddingData).where(self.EmbeddingData.text.ilike(f"%{token}%"))
+                    rows = session.execute(stmt).scalars().all()
+                    n_chunks_with_token = len(rows)
+
+                    # Compute IDF weight (rare tokens get higher score)
+                    idf = math.log((total_chunks + 1) / (1 + n_chunks_with_token))
+
+                    for row in rows:
+                        if row.id not in keyword_counts:
+                            keyword_counts[row.id] = {'score': 0.0, 'data': row}
+                        keyword_counts[row.id]['score'] += idf  # weight instead of +1
+
+                # Merge results
+                for item in keyword_counts.values():
+                    row = item['data']
+                    score = float(item['score'])
+                    if row.id in results:
+                        results[row.id]['score'] = max(results[row.id]['score'], score)
+                    else:
+                        results[row.id] = {
+                            'chunk_id': row.id,
+                            'document_id': row.id,
+                            'filename': row.filename,
+                            'text': row.text,
+                            'score': score,
+                            'metadata': {
+                                'chunk_index': row.chunk_index,
+                                'document_metadata': row.document_metadata,
+                            }
+                        }
+
+            # --------- 3️⃣ Sort combined results by score ---------
+            sorted_results = sorted(results.values(), key=lambda x: x['score'], reverse=True)
+            return sorted_results[:top_k]
+
         except Exception as e:
-            logger.error(f"Error searching pgvector: {e}")
+            logger.error(f"Error in hybrid search: {e}")
             raise
+
+
 
     def get_index_stats(self) -> Dict[str, Any]:
         """Get index statistics with parallel processing info."""

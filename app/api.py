@@ -349,6 +349,7 @@ async def process_query(request: QueryRequest):
     """Process a query through the RAG pipeline."""
     try:
         result = rag_pipeline.process_query(request.query, request.top_k)
+        # print('here is the response =====', result)
         return QueryResponse(**result)
         
     except Exception as e:
