@@ -291,15 +291,16 @@
             background: transparent;
             border: none;
             cursor: pointer;
-            font-size: 1rem;
+            font-size: 0.8rem;
             line-height: 1;
-            color: #a0aec0;
-            padding: 6px;
+            color: #ff0000;
+            padding: 4px;
             border-radius: 4px;
             transition: color 0.2s ease, background 0.2s ease, transform 0.1s ease;
+            font-weight: bold;
         }
         .delete-file-btn:hover {
-            color: #e53e3e;
+            color: #c53030;
             background: #fff5f5;
             transform: translateY(-1px);
         }
@@ -822,7 +823,7 @@
                         <span>📄 ${file.name}</span>
                         <div class="file-item-right">
                             <span>${(file.size / 1024 / 1024).toFixed(2)} MB</span>
-                            <button class="delete-file-btn" aria-label="Remove ${file.name}" title="Remove" onclick="removeSelectedFile(${index})">🗑️</button>
+                            <button class="delete-file-btn" aria-label="Remove ${file.name}" title="Remove" onclick="removeSelectedFile(${index})">✕</button>
                         </div>
                     </div>
                 `).join('');
@@ -1002,7 +1003,10 @@
                             </div>
                         `;
                     } else {
-                        documentsList.innerHTML = result.documents.map(doc => `
+                        // Sort documents by ID in descending order (newest first)
+                        const sortedDocuments = result.documents.sort((a, b) => (b.id || 0) - (a.id || 0));
+                        
+                        documentsList.innerHTML = sortedDocuments.map(doc => `
                             <div class="document-item">
                                 <div class="document-title">📄 ${doc.filename}</div>
                                 <div class="document-info">
