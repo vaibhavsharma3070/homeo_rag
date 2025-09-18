@@ -17,7 +17,7 @@ class RAGPipeline:
             self.vector_store = PGVectorStore()
         self.llm_connector: OllamaConnector = LLMFactory.create_connector()
 
-    def process_query(self, query: str, top_k: int = 3, min_score: float = 0.2) -> Dict[str, Any]:
+    def process_query(self, query: str, top_k: int = 6, min_score: float = 0.2) -> Dict[str, Any]:
         """
         Flow:
         1. Initial search with original query
@@ -27,8 +27,15 @@ class RAGPipeline:
         try:
             logger.info(f"Processing query: '{query}'")
             
-            # Step 1: Initial search with original query
-            initial_results = self.vector_store.search(query, top_k=top_k)
+            # Step 1: Initial search (prefer acronym-only search if present)
+            extracted = self._extract_keywords(query)
+            acronyms_only = [k for k in extracted if k.isupper() and len(k) > 1]
+            search_query = " ".join(acronyms_only) if acronyms_only else query
+            if acronyms_only:
+                logger.info(f"Using acronym-focused search query: '{search_query}'")
+            # When using acronyms/phrases, widen the search a bit
+            effective_top_k = max(top_k, 10) if acronyms_only else top_k
+            initial_results = self.vector_store.search(search_query, top_k=effective_top_k)
             logger.info(f"Initial search retrieved {len(initial_results)} results")
 
             # Step 2: Filter results
@@ -84,11 +91,18 @@ class RAGPipeline:
         """
         query_clean = query.lower().replace("?", "").strip()
         words = [w for w in query_clean.split() if w not in STOPWORDS and len(w) > 2]
-        
+
+        # Prefer acronyms if present: return ONLY acronyms and their lowercase variants
+        tokens = re.findall(r"[A-Za-z0-9]+", query)
+        acronyms = [t for t in tokens if t.isupper() and len(t) > 1]
+        if acronyms:
+            dedup_acronyms = list(dict.fromkeys(acronyms))
+            return dedup_acronyms + [a.lower() for a in dedup_acronyms]
+
         keywords = []
 
-        # 1. Preserve acronyms (from original query, not lowercased)
-        for w in query.split():
+        # 1. Preserve acronyms (from original query, not lowercased) — robust to punctuation
+        for w in tokens:
             if w.isupper() and len(w) > 1:
                 keywords.append(w)
 
@@ -109,7 +123,7 @@ class RAGPipeline:
         # Deduplicate and return
         return list(dict.fromkeys(keywords))
 
-    def _prepare_context(self, results: List[Dict[str, Any]], query: str, max_chunks: int = 5) -> List[str]:
+    def _prepare_context(self, results: List[Dict[str, Any]], query: str, max_chunks: int = 10, sentence_window: int = 1) -> List[str]:
         """
         Build context from search results with improved ranking.
         Now handles multi-word phrases properly.
@@ -125,33 +139,43 @@ class RAGPipeline:
             sentences = [s.strip() for s in text.split('.') if len(s.strip()) > 20]
 
             # Score sentences by keyword overlap (case-insensitive)
-            for sentence in sentences:
+            for idx, sentence in enumerate(sentences):
                 score = 0
                 sentence_lower = sentence.lower()
                 
                 for keyword in query_keywords:
                     keyword_lower = keyword.lower()
-                    
-                    # For multi-word phrases, check exact phrase match
+
+                    # For multi-word phrases, check exact phrase match with boundaries
                     if " " in keyword_lower:
-                        if keyword_lower in sentence_lower:
+                        pattern = rf"\b{re.escape(keyword_lower)}\b"
+                        if re.search(pattern, sentence_lower):
                             score += 3  # Higher score for phrase match
                     else:
-                        # Single word matching
-                        if keyword_lower in sentence_lower:
-                            # Exact word boundary match gets higher score
-                            if f" {keyword_lower} " in f" {sentence_lower} ":
-                                score += 2
-                            else:
-                                score += 1
+                        # Single word: require word boundary match only (no substring hits)
+                        pattern = rf"\b{re.escape(keyword_lower)}\b"
+                        if re.search(pattern, sentence_lower):
+                            score += 2
                 
                 if score > 0:
-                    ranked_contexts.append((score, sentence, result['score']))
+                    # Include neighboring sentences to add context
+                    start = max(0, idx - sentence_window)
+                    end = min(len(sentences), idx + sentence_window + 1)
+                    window_text = ". ".join(s for s in sentences[start:end])
+                    ranked_contexts.append((score, window_text, result['score']))
 
         # Sort by keyword score first, then by vector similarity score
         ranked_contexts.sort(key=lambda x: (x[0], x[2]), reverse=True)
-        top_sentences = [sentence for _, sentence, _ in ranked_contexts[:max_chunks]]
-        
+        # Deduplicate windows while preserving order
+        seen = set()
+        top_sentences = []
+        for _, sentence, _ in ranked_contexts:
+            if sentence not in seen:
+                seen.add(sentence)
+                top_sentences.append(sentence)
+            if len(top_sentences) >= max_chunks:
+                break
+        print('top_sentences =====> ',top_sentences)
         print(f"📝 Selected {len(top_sentences)} sentences for context")
         return [". ".join(top_sentences) + "."] if top_sentences else []
 
@@ -247,10 +271,12 @@ Answer:"""
             for kw in query_keywords:
                 kw_lower = kw.lower()
                 if " " in kw_lower:  # Multi-word phrase
-                    if kw_lower in context_text:
+                    pattern = rf"\b{re.escape(kw_lower)}\b"
+                    if re.search(pattern, context_text):
                         keyword_matches += 1
                 else:  # Single word
-                    if kw_lower in context_text:
+                    pattern = rf"\b{re.escape(kw_lower)}\b"
+                    if re.search(pattern, context_text):
                         keyword_matches += 1
             
             keyword_ratio = keyword_matches / len(query_keywords) if query_keywords else 0
