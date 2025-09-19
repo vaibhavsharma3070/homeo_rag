@@ -180,20 +180,25 @@ class RAGPipeline:
         return [". ".join(top_sentences) + "."] if top_sentences else []
 
     def _create_sources(self, results: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        """Create source information from search results."""
-        sources = []
-        for r in results:
-            src = {
-                'filename': r['filename'],
-                'document_id': r['document_id'],
-                'relevance_score': round(r['score'], 4)
-            }
-            if r.get('chunk_id'):
-                src['chunk_id'] = r['chunk_id']
-            text = ' '.join(r['text'].replace('--- Page', '').replace('---', '').split())
-            src['preview'] = text[:80] + "..." if len(text) > 80 else text
-            sources.append(src)
-        return sources
+        """Create source information from search results - return only the most relevant source."""
+        if not results:
+            return []
+        
+        # Sort results by relevance score (highest first) and take only the top one
+        sorted_results = sorted(results, key=lambda x: x['score'], reverse=True)
+        top_result = sorted_results[0]
+        
+        src = {
+            'filename': top_result['filename'],
+            'document_id': top_result['document_id'],
+            'relevance_score': round(top_result['score'], 4)
+        }
+        if top_result.get('chunk_id'):
+            src['chunk_id'] = top_result['chunk_id']
+        text = ' '.join(top_result['text'].replace('--- Page', '').replace('---', '').split())
+        src['preview'] = text[:80] + "..." if len(text) > 80 else text
+        
+        return [src]  # Return as list with single item to maintain API compatibility
 
     def _generate_response(self, original_query: str, context_chunks: List[str]) -> str:
         """Generate response strictly from provided context."""

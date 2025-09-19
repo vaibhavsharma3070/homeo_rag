@@ -66,6 +66,11 @@ source venv/bin/activate  # Linux/Mac
 pip install -r requirements.txt
 ```
 
+### 5. Run Celery for background process
+```bash
+celery -A app.celery_app.celery_app worker -l info -P solo
+```
+
 ### 5. Run Application
 ```bash
 python -m uvicorn app.main:app --host 0.0.0.0 --port 8090

@@ -27,7 +27,7 @@ class OllamaConnector(LLMConnector):
         self.base_url = settings.ollama_base_url
         self.model = settings.ollama_model
         # bumped defaults: 100s read timeout, 10s connect timeout
-        self.max_timeout = getattr(settings, 'ollama_read_timeout', 100)
+        self.max_timeout = getattr(settings, 'ollama_read_timeout', 300)
         self.connection_timeout = getattr(settings, 'ollama_connect_timeout', 10)
 
     def get_available_models(self) -> List[str]:

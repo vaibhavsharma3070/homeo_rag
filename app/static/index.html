@@ -561,9 +561,17 @@
             
             <div class="file-list" id="selected-files" style="display: none;"></div>
             
-            <button class="btn" id="upload-btn" onclick="uploadFiles()" disabled>
-                📤 Upload Documents
-            </button>
+            <div style="display:flex; gap:12px; align-items:center;">
+                <button class="btn" id="upload-btn" onclick="uploadFilesAsync()" disabled>
+                    📤 Upload
+                </button>
+            </div>
+            <div id="progress-container" style="display:none; margin-top:14px;">
+                <div style="height:10px; background:#e2e8f0; border-radius:6px; overflow:hidden;">
+                    <div id="ingest-progress-bar" style="height:10px; width:0%; background:#667eea; transition: width .3s ease;"></div>
+                </div>
+                <div id="progress-text" style="margin-top:8px; color:#4a5568; font-size:0.9rem;">Preparing...</div>
+            </div>
             
             <div class="response-area" id="upload-response" style="display: none;"></div>
         </div>
@@ -828,90 +836,115 @@
                     </div>
                 `).join('');
                 uploadBtn.disabled = false;
+                document.getElementById('upload-btn-sync').disabled = false;
             } else {
                 fileList.style.display = 'none';
                 uploadBtn.disabled = true;
+                document.getElementById('upload-btn-sync').disabled = true;
                 // also clear the native input so the same files can be reselected
                 const input = document.getElementById('file-input');
                 if (input) input.value = '';
             }
+        }
+        async function uploadFilesAsync() {
+            if (selectedFiles.length === 0) {
+                showModal('Upload Error', 'Please select PDF files to upload.', 'warning');
+                return;
+            }
+
+            const formData = new FormData();
+            selectedFiles.forEach(file => formData.append('files', file));
+
+            const uploadBtn = document.getElementById('upload-btn');
+            const responseArea = document.getElementById('upload-response');
+            const container = document.getElementById('progress-container');
+            const bar = document.getElementById('ingest-progress-bar');
+            const text = document.getElementById('progress-text');
+
+            uploadBtn.disabled = true;
+            uploadBtn.innerHTML = '<div class="spinner"></div> Scheduling...';
+            responseArea.style.display = 'block';
+            responseArea.innerHTML = '';
+            container.style.display = 'block';
+            bar.style.width = '0%';
+            text.textContent = 'Scheduling background job...';
+
+            let jobId = null;
+            try {
+                const res = await fetch(`${API_BASE}/api/ingest/async`, { method: 'POST', body: formData });
+                const result = await res.json();
+                if (!res.ok) throw new Error(result.detail || 'Failed to start background ingestion');
+                jobId = result.job_id;
+            } catch (e) {
+                showModal('Background Upload Failed', e.message, 'error');
+                container.style.display = 'none';
+                uploadBtn.disabled = false;
+                uploadBtn.innerHTML = '📤 Upload';
+                return;
+            }
+
+            // Poll progress
+            async function poll() {
+                try {
+                    const r = await fetch(`${API_BASE}/api/ingest/progress/${jobId}`);
+                    const p = await r.json();
+                    const pct = Math.max(0, Math.min(100, Number(p.progress || 0)));
+                    bar.style.width = pct + '%';
+                    let subtitle = '';
+                    if (p.step === 'processing_files') {
+                        subtitle = `Processing files (${p.files_processed || 0}/${p.total_files || '?'})`;
+                    } else if (p.step === 'indexing') {
+                        subtitle = `Indexing chunks (${p.total_chunks || 0})`;
+                    } else if (p.step === 'finalizing') {
+                        subtitle = 'Finalizing...';
+                    } else if (p.state) {
+                        subtitle = p.state;
+                    } else {
+                        subtitle = 'Working...';
+                    }
+                    text.textContent = `${subtitle} • ${pct}%`;
+
+                    if (p.state === 'SUCCESS' || pct >= 100) {
+                        bar.style.width = '100%';
+                        text.textContent = 'Completed • 100%';
+                        responseArea.innerHTML = `
+                            <div style="color:#22543d;background:#c6f6d5;padding:15px;border-radius:8px;">
+                              <strong>✅ Upload Scheduled & Processed!</strong><br>
+                              📄 Documents processed: ${p.documents_processed || 0}<br>
+                              🧩 Chunks created: ${p.chunks_created || 0}
+                            </div>`;
+                        // refresh docs list index
+                        refreshUploadedDocsIndex();
+                        setTimeout(() => { container.style.display = 'none'; }, 2000);
+                        uploadBtn.disabled = false;
+                        uploadBtn.innerHTML = '📤 Upload';
+                        // reset selection
+                        selectedFiles = [];
+                        document.getElementById('selected-files').style.display = 'none';
+                        document.getElementById('file-input').value = '';
+                        return;
+                    }
+
+                    if (p.state === 'FAILURE') {
+                        showModal('Background Ingestion Failed', p.error || 'Unknown error', 'error');
+                        container.style.display = 'none';
+                        uploadBtn.disabled = false;
+                        uploadBtn.innerHTML = '📤 Upload';
+                        return;
+                    }
+
+                    setTimeout(poll, 1500);
+                } catch (e) {
+                    setTimeout(poll, 2000);
+                }
+            }
+            poll();
         }
 
         function removeSelectedFile(index) {
             if (index < 0 || index >= selectedFiles.length) return;
             const updated = selectedFiles.slice(0, index).concat(selectedFiles.slice(index + 1));
             updateSelectedFiles(updated);
-        }
-
-        async function uploadFiles() {
-            if (selectedFiles.length === 0) {
-                showModal('Upload Error', 'Please select PDF files to upload.', 'warning');
-                return;
-            }
-            
-            const formData = new FormData();
-            selectedFiles.forEach(file => formData.append('files', file));
-            
-            const uploadBtn = document.getElementById('upload-btn');
-            const responseArea = document.getElementById('upload-response');
-            
-            uploadBtn.disabled = true;
-            uploadBtn.innerHTML = '<div class="spinner"></div> Uploading...';
-            responseArea.style.display = 'block';
-            responseArea.innerHTML = '<div class="loading"><div class="spinner"></div>Processing documents...</div>';
-            
-            try {
-                const response = await fetch(`${API_BASE}/api/ingest`, {
-                    method: 'POST',
-                    body: formData
-                });
-                
-                const result = await response.json();
-                
-                if (response.ok) {
-                    responseArea.innerHTML = `
-                        <div style="color: #22543d; background: #c6f6d5; padding: 15px; border-radius: 8px;">
-                            <strong>✅ Upload Successful!</strong><br>
-                            📄 Documents processed: ${result.documents_processed}<br>
-                            🧩 Chunks created: ${result.chunks_created}<br>
-                            💬 ${result.message}
-                        </div>
-                    `;
-                    // Auto-hide success message after 3 seconds
-                    setTimeout(() => {
-                        responseArea.style.display = 'none';
-                        responseArea.innerHTML = '';
-                    }, 3000);
-                    
-                    // Show success modal
-                    showModal('Upload Successful', 
-                        `Successfully uploaded ${result.documents_processed} documents and created ${result.chunks_created} chunks.`, 
-                        'success'
-                    );
-                    
-                    // Reset form
-                    selectedFiles = [];
-                    document.getElementById('selected-files').style.display = 'none';
-                    document.getElementById('file-input').value = '';
-
-                    // Refresh uploaded docs index to prevent re-uploading same files
-                    refreshUploadedDocsIndex();
-                } else {
-                    throw new Error(result.detail || 'Upload failed');
-                }
-            } catch (error) {
-                responseArea.innerHTML = `
-                    <div style="color: #742a2a; background: #fed7d7; padding: 15px; border-radius: 8px;">
-                        <strong>❌ Upload Failed!</strong><br>
-                        ${error.message}
-                    </div>
-                `;
-                
-                showModal('Upload Failed', `Error: ${error.message}`, 'error');
-            }
-            
-            uploadBtn.disabled = false;
-            uploadBtn.innerHTML = '📤 Upload Documents';
         }
 
         async function submitQuery() {
@@ -966,7 +999,7 @@
                         
                         ${referencesHtml ? `
                             <div class="references">
-                                <h3 style="color: #667eea; margin-bottom: 15px;">📚 Source References (${result.sources.length})</h3>
+                                <h3 style="color: #667eea; margin-bottom: 15px;">📚 Source Reference${result.sources.length > 1 ? 's' : ''} (${result.sources.length})</h3>
                                 ${referencesHtml}
                             </div>
                         ` : ''}

@@ -79,6 +79,8 @@ typing-inspection
 typing_extensions
 urllib3
 uvicorn
+celery
+redis
 win32_setctime
 yarl
 zstandard
