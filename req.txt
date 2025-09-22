@@ -84,3 +84,5 @@ redis
 win32_setctime
 yarl
 zstandard
+beautifulsoup4
+requests

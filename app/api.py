@@ -10,6 +10,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from loguru import logger
 import json
 from datetime import datetime
+import requests
+from bs4 import BeautifulSoup
+from urllib.parse import urljoin
 
 from app.models import (
     QueryRequest, QueryResponse, SearchRequest, SearchResponse,
@@ -242,6 +245,58 @@ async def list_documents():
     except Exception as e:
         logger.error(f"Error listing documents: {e}")
         raise HTTPException(status_code=500, detail=f"Error listing documents: {str(e)}")
+
+def scrape_url(url: str, depth: int = 1, visited=None):
+    if visited is None:
+        visited = set()
+
+    if url in visited:
+        return []
+
+    visited.add(url)
+    results = []
+
+    try:
+        res = requests.get(url, timeout=10)
+        res.raise_for_status()
+        soup = BeautifulSoup(res.text, "html.parser")
+
+        # Extract headings and text
+        headings = [h.get_text(strip=True) for h in soup.find_all(["h1", "h2", "h3", "h4", "h5", "h6"])]
+        paragraphs = [p.get_text(strip=True) for p in soup.find_all("p")]
+
+        results.append({
+            "url": url,
+            "headings": headings,
+            "text": " ".join(paragraphs)[:1000]  # just show first 1000 chars to avoid overload
+        })
+
+        # Depth handling → follow links
+        if depth > 1:
+            for a in soup.find_all("a", href=True):
+                child_url = urljoin(url, a["href"])
+                if child_url.startswith("http"):
+                    results.extend(scrape_url(child_url, depth-1, visited))
+    except Exception as e:
+        results.append({"url": url, "error": str(e)})
+
+    return results
+
+@app.post("/api/weblink", tags=["Weblink"])
+async def weblink_endpoint(request: Dict[str, Any]):
+    """
+    Scrape URL text and headings (depth supported).
+    """
+    url = request.get("query")
+    depth = int(request.get("depth", 1))
+
+    if not url:
+        raise HTTPException(status_code=400, detail="No URL provided")
+
+    scraped_data = scrape_url(url, depth)
+
+    print("Scraped Data:", scraped_data)  # just print for testing
+    return {"message": "Scraping completed", "results": scraped_data}
 
 @app.get("/api/llm-test", response_model=LLMTestResponse, tags=["System"])
 async def test_llm():

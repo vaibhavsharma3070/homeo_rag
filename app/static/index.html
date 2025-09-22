@@ -147,6 +147,20 @@
             border-color: #667eea;
             box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
         }
+        .url-input {
+            width: 100%;
+            padding: 15px;
+            border: 2px solid #e2e8f0;
+            border-radius: 10px;
+            font-size: 1rem;
+            margin-bottom: 15px;
+            transition: border-color 0.3s ease;
+        }
+        .url-input:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
         .query-controls {
             display: flex;
             gap: 15px;
@@ -542,6 +556,7 @@
 
         <div class="tabs">
             <div class="tab active" onclick="switchTab('upload')">📤 Upload Documents</div>
+            <div class="tab" onclick="switchTab('weblinks')">🔗 Weblinks</div> 
             <div class="tab" onclick="switchTab('query')">❓ Ask Questions</div>
             <div class="tab" onclick="switchTab('documents')">📚 Manage Documents</div>
             <div class="tab" onclick="switchTab('stats')">📊 Statistics</div>
@@ -629,6 +644,17 @@
                 </button>
                 <div class="response-area" id="llm-test-response" style="display: none; margin-top: 15px;"></div>
             </div>
+        </div>
+
+        <!-- Weblinks Tab -->
+        <div class="tab-content" id="weblinks-content">
+            <div class="query-form">
+                <input type="text" class="url-input" id="weblink-input" placeholder="Paste a URL...">
+                <div class="query-controls">
+                    <button class="btn" onclick="addWeblink()">➕ Search Web</button>
+                </div>
+            </div>
+            <div class="response-area" id="weblink-response" style="display: none;"></div>
         </div>
     </div>
 
@@ -846,6 +872,7 @@
                 if (input) input.value = '';
             }
         }
+
         async function uploadFilesAsync() {
             if (selectedFiles.length === 0) {
                 showModal('Upload Error', 'Please select PDF files to upload.', 'warning');
@@ -1019,6 +1046,38 @@
             }
         }
         
+        async function addWeblink() {
+            const url = document.getElementById("weblink-input").value;
+
+            try {
+                const res = await fetch("/api/weblink", {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json"
+                    },
+                    body: JSON.stringify({ query: url, depth: 2 }) // 👈 here depth=2
+                });
+
+                const data = await res.json();
+
+                const responseDiv = document.getElementById("weblink-response");
+                responseDiv.style.display = "block";
+                responseDiv.innerText = JSON.stringify(data, null, 2);
+
+                console.log("Response from /weblink:", data);
+            } catch (err) {
+                console.error("Error calling /weblink:", err);
+            }
+        }
+
+        // Trigger addWeblink on Enter key press
+        document.getElementById("weblink-input").addEventListener("keydown", function(event) {
+            if (event.key === "Enter") {
+                event.preventDefault(); // Prevent form submission/reload
+                addWeblink();
+            }
+        });
+
         async function loadDocuments() {
             const documentsList = document.getElementById('documents-list');
             documentsList.innerHTML = '<div class="loading"><div class="spinner"></div>Loading documents...</div>';
