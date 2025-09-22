@@ -97,6 +97,8 @@ class PGVectorStore:
             embedding = Column(Vector(self.dimension))
             document_metadata = Column(JSON)
             total_chunks = Column(Integer, nullable=False)
+            source = Column(String(50), nullable=False, default='pdf')  # New source column
+            created_at = Column(Integer, nullable=False, default=lambda: int(time.time()))
 
         self.EmbeddingData = EmbeddingData
 
@@ -152,7 +154,7 @@ class PGVectorStore:
         return batches
 
     def _process_chunk_batch(self, batch: ChunkBatch) -> Dict[str, Any]:
-        """Process a single batch of chunks."""
+        """Process a single batch of chunks with source tracking."""
         session = None
         try:
             # Create new session for this worker
@@ -165,6 +167,13 @@ class PGVectorStore:
             # Create embedding data objects
             embedding_rows = []
             for i, chunk in enumerate(batch.chunks):
+                # Determine source type from metadata or file extension
+                source_type = chunk.get('source_type', 'pdf')  # Default to pdf
+                if 'source_url' in chunk.get('document_metadata', {}):
+                    source_type = 'url'
+                elif chunk.get('file_path', '').startswith('http'):
+                    source_type = 'url'
+                
                 embedding_rows.append(
                     self.EmbeddingData(
                         filename=chunk['filename'],
@@ -173,7 +182,9 @@ class PGVectorStore:
                         text=chunk['text'],
                         embedding=embeddings[i].tolist(),
                         document_metadata=chunk['document_metadata'],
-                        total_chunks=chunk['total_chunks']
+                        total_chunks=chunk['total_chunks'],
+                        source=source_type,  # Set source type
+                        created_at=int(time.time())
                     )
                 )
             
@@ -199,7 +210,8 @@ class PGVectorStore:
                 'batch_id': batch.batch_id,
                 'status': 'success',
                 'chunks_processed': len(batch.chunks),
-                'filename': batch.document_info['filename']
+                'filename': batch.document_info['filename'],
+                'source_type': source_type
             }
             
         except Exception as e:
@@ -303,7 +315,7 @@ class PGVectorStore:
         return result['success']
 
     def search(self, query: str, top_k: int = 5) -> List[Dict[str, Any]]:
-        """Hybrid search: semantic vector search + per-word keyword search with IDF weighting."""
+        """Hybrid search with source information."""
         import re, math
 
         try:
@@ -330,9 +342,11 @@ class PGVectorStore:
                         'filename': embedding_data.filename,
                         'text': embedding_data.text,
                         'score': similarity_score,
+                        'source': embedding_data.source,  # Include source
                         'metadata': {
                             'chunk_index': embedding_data.chunk_index,
                             'document_metadata': embedding_data.document_metadata,
+                            'created_at': embedding_data.created_at,
                         }
                     }
 
@@ -378,9 +392,11 @@ class PGVectorStore:
                             'filename': row.filename,
                             'text': row.text,
                             'score': score,
+                            'source': row.source,  # Include source
                             'metadata': {
                                 'chunk_index': row.chunk_index,
                                 'document_metadata': row.document_metadata,
+                                'created_at': row.created_at,
                             }
                         }
 
@@ -391,8 +407,6 @@ class PGVectorStore:
         except Exception as e:
             logger.error(f"Error in hybrid search: {e}")
             raise
-
-
 
     def get_index_stats(self) -> Dict[str, Any]:
         """Get index statistics with parallel processing info."""

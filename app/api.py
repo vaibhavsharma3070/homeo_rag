@@ -1,7 +1,9 @@
 import os
+import random
 import shutil
 import asyncio
 from pathlib import Path
+import time
 from typing import List, Dict, Any, Optional
 from fastapi import FastAPI, HTTPException, UploadFile, File, Form, Depends, BackgroundTasks
 from fastapi.responses import JSONResponse, FileResponse, StreamingResponse
@@ -12,7 +14,7 @@ import json
 from datetime import datetime
 import requests
 from bs4 import BeautifulSoup
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlparse
 
 from app.models import (
     QueryRequest, QueryResponse, SearchRequest, SearchResponse,
@@ -249,54 +251,158 @@ async def list_documents():
 def scrape_url(url: str, depth: int = 1, visited=None):
     if visited is None:
         visited = set()
-
     if url in visited:
         return []
-
     visited.add(url)
     results = []
-
+    
+    # Create robust session
+    session = requests.Session()
+    
+    # Add realistic headers to avoid blocking
+    session.headers.update({
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.9',
+        'Accept-Encoding': 'gzip, deflate, br',
+        'Connection': 'keep-alive',
+        'Upgrade-Insecure-Requests': '1',
+        'Sec-Fetch-Dest': 'document',
+        'Sec-Fetch-Mode': 'navigate',
+        'Sec-Fetch-Site': 'none',
+        'Cache-Control': 'max-age=0',
+        'DNT': '1',
+    })
+    
     try:
-        res = requests.get(url, timeout=10)
+        # Add delay to avoid being blocked
+        time.sleep(random.uniform(1, 3))
+        
+        res = session.get(url, timeout=15)
         res.raise_for_status()
         soup = BeautifulSoup(res.text, "html.parser")
-
-        # Extract headings and text
-        headings = [h.get_text(strip=True) for h in soup.find_all(["h1", "h2", "h3", "h4", "h5", "h6"])]
-        paragraphs = [p.get_text(strip=True) for p in soup.find_all("p")]
-
-        results.append({
-            "url": url,
-            "headings": headings,
-            "text": " ".join(paragraphs)[:1000]  # just show first 1000 chars to avoid overload
-        })
-
-        # Depth handling → follow links
+        
+        # Remove unwanted elements
+        for unwanted in soup(["script", "style", "nav", "header", "footer", "aside", 
+                            "advertisement", "ads", "social-share", "cookie-banner", 
+                            "noscript", "iframe", "form"]):
+            unwanted.decompose()
+        
+        # Extract headings
+        headings = []
+        for h in soup.find_all(["h1", "h2", "h3", "h4", "h5", "h6"]):
+            heading_text = h.get_text(strip=True)
+            if heading_text and len(heading_text) > 3:
+                headings.append(heading_text)
+        
+        # Extract paragraphs with better filtering
+        paragraphs = []
+        for p in soup.find_all("p"):
+            para_text = p.get_text(strip=True)
+            if para_text and len(para_text) > 20:  # Filter out very short paragraphs
+                paragraphs.append(para_text)
+        
+        # Also extract content from main, article, section tags
+        main_content = []
+        for tag in soup.find_all(["main", "article", "section", "div"]):
+            if tag.get("class"):
+                class_names = " ".join(tag.get("class", []))
+                if any(keyword in class_names.lower() for keyword in ["content", "article", "main", "body", "text", "post", "entry"]):
+                    content_text = tag.get_text(strip=True)
+                    if content_text and len(content_text) > 50:
+                        main_content.append(content_text)
+        
+        # Extract from lists that might contain useful information
+        list_content = []
+        for ul in soup.find_all(["ul", "ol"]):
+            list_text = ul.get_text(strip=True)
+            if list_text and len(list_text) > 30:
+                list_content.append(list_text)
+        
+        # Combine all text
+        all_text = " ".join(paragraphs + main_content + list_content)
+        
+        # Clean the text
+        import re
+        all_text = re.sub(r'\s+', ' ', all_text)  # Remove excessive whitespace
+        all_text = re.sub(r'Cookie Policy|Privacy Policy|Terms of Service|Subscribe|Newsletter', '', all_text, flags=re.IGNORECASE)
+        
+        # Remove Wikipedia navigation artifacts
+        all_text = re.sub(r'From Wikipedia, the free encyclopedia|Jump to navigation|Jump to search', '', all_text, flags=re.IGNORECASE)
+        
+        # Only add if we have substantial content
+        if all_text.strip() and len(all_text.strip()) > 100:
+            results.append({
+                "url": url,
+                "headings": headings,
+                "text": all_text.strip()
+            })
+            logger.info(f"Successfully scraped {url}: {len(all_text)} characters, {len(headings)} headings")
+        else:
+            logger.warning(f"Insufficient content scraped from {url}: only {len(all_text.strip())} characters")
+        
+        # Depth handling - follow links (only for same domain)
         if depth > 1:
-            for a in soup.find_all("a", href=True):
+            base_domain = urlparse(url).netloc
+            links = soup.find_all("a", href=True)
+            followed_links = 0
+            
+            for a in links:
+                if followed_links >= 5:  # Limit to first 5 links to avoid infinite recursion
+                    break
+                    
                 child_url = urljoin(url, a["href"])
-                if child_url.startswith("http"):
-                    results.extend(scrape_url(child_url, depth-1, visited))
+                
+                # Only follow links from same domain and avoid certain file types
+                if (child_url.startswith("http") and 
+                    urlparse(child_url).netloc == base_domain and
+                    not any(child_url.lower().endswith(ext) for ext in ['.pdf', '.jpg', '.png', '.gif', '.css', '.js', '.xml', '.json'])):
+                    
+                    try:
+                        child_results = scrape_url(child_url, depth-1, visited)
+                        results.extend(child_results)
+                        followed_links += 1
+                    except Exception as e:
+                        logger.warning(f"Failed to scrape child URL {child_url}: {e}")
+                        continue
+                    
+    except requests.exceptions.RequestException as e:
+        logger.error(f"Request failed for {url}: {str(e)}")
+        results.append({"url": url, "error": f"Request failed: {str(e)}"})
     except Exception as e:
+        logger.error(f"Error scraping {url}: {str(e)}")
         results.append({"url": url, "error": str(e)})
-
+    finally:
+        session.close()
+    
     return results
 
 @app.post("/api/weblink", tags=["Weblink"])
 async def weblink_endpoint(request: Dict[str, Any]):
     """
-    Scrape URL text and headings (depth supported).
+    Schedule weblink scraping and ingestion as a background Celery task.
+    Returns a job_id to poll with any Celery-aware progress endpoint.
     """
-    url = request.get("query")
-    depth = int(request.get("depth", 1))
+    try:
+        url = request.get("query")
+        depth = int(request.get("depth", 1))
+        max_workers = int(request.get("max_workers", 4))
+        batch_size = int(request.get("batch_size", 100))
 
-    if not url:
-        raise HTTPException(status_code=400, detail="No URL provided")
+        if not url:
+            raise HTTPException(status_code=400, detail="No URL provided")
 
-    scraped_data = scrape_url(url, depth)
+        task = celery_app.send_task(
+            "app.tasks.weblink_ingestion_task",
+            args=[url, depth, max_workers, batch_size]
+        )
+        return {"job_id": task.id, "status": "queued"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error scheduling weblink async ingestion: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
-    print("Scraped Data:", scraped_data)  # just print for testing
-    return {"message": "Scraping completed", "results": scraped_data}
 
 @app.get("/api/llm-test", response_model=LLMTestResponse, tags=["System"])
 async def test_llm():
@@ -330,6 +436,33 @@ async def clear_knowledge_base():
     except Exception as e:
         logger.error(f"Error clearing knowledge base: {e}")
         raise HTTPException(status_code=500, detail=f"Error clearing knowledge base: {str(e)}")
+
+@app.get("/api/stats", response_model=StatsResponse, tags=["System"])
+async def get_stats():
+    """Get enhanced knowledge base statistics including parallel processing info."""
+    try:
+        stats = rag_pipeline.get_knowledge_base_stats()
+        
+        if 'error' in stats:
+            raise HTTPException(status_code=500, detail=stats['error'])
+        
+        # Add parallel processing stats if available
+        if hasattr(rag_pipeline.vector_store, 'max_workers'):
+            stats.update({
+                'parallel_processing': {
+                    'max_workers': rag_pipeline.vector_store.max_workers,
+                    'batch_size': rag_pipeline.vector_store.batch_size,
+                    'enabled': True
+                }
+            })
+        
+        return StatsResponse(**stats)
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting stats: {e}")
+        raise HTTPException(status_code=500, detail=f"Error getting stats: {str(e)}")
 
 @app.get("/api/performance/benchmark", tags=["System"])
 async def benchmark_ingestion():

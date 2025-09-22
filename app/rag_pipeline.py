@@ -191,14 +191,15 @@ class RAGPipeline:
         src = {
             'filename': top_result['filename'],
             'document_id': top_result['document_id'],
-            'relevance_score': round(top_result['score'], 4)
+            'relevance_score': round(top_result['score'], 4),
+            'metadata': top_result.get('metadata', {})  # Add this line
         }
         if top_result.get('chunk_id'):
             src['chunk_id'] = top_result['chunk_id']
         text = ' '.join(top_result['text'].replace('--- Page', '').replace('---', '').split())
         src['preview'] = text[:80] + "..." if len(text) > 80 else text
         
-        return [src]  # Return as list with single item to maintain API compatibility
+        return [src]
 
     def _generate_response(self, original_query: str, context_chunks: List[str]) -> str:
         """Generate response strictly from provided context."""

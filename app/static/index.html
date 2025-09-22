@@ -997,15 +997,30 @@
                 const result = await response.json();
                 
                 if (response.ok) {
-                    const referencesHtml = result.sources?.map(source => `
+                    const referencesHtml = result.sources?.map(source => {
+                    // Check if this is a URL source by looking at the document_metadata
+                    const documentMetadata = source.metadata?.document_metadata;
+                    const isUrlSource = documentMetadata && documentMetadata.source_url;
+                    
+                    let sourceDisplay;
+                    if (isUrlSource) {
+                        const sourceUrl = documentMetadata.source_url;
+                        const displayText = documentMetadata.domain || sourceUrl;
+                        sourceDisplay = `🌐 <a href="${sourceUrl}" target="_blank" rel="noopener noreferrer" style="color: #667eea; text-decoration: underline;">${displayText}</a>`;
+                    } else {
+                        sourceDisplay = `📄 ${source.filename || 'Unknown Document'}`;
+                    }
+                    
+                    return `
                         <div class="reference-item">
                             <div class="reference-header">
-                                📄 ${source.filename || 'Unknown Document'}
+                                ${sourceDisplay}
                                 <span class="reference-score">Score: ${source.relevance_score?.toFixed(3) || 'N/A'}</span>
                             </div>
                             <div class="reference-content">${source.preview || 'No preview available'}</div>
                         </div>
-                    `).join('') || '';
+                    `;
+                }).join('') || '';
                     
                     responseArea.innerHTML = `
                         <div class="response-content">
@@ -1047,27 +1062,201 @@
         }
         
         async function addWeblink() {
-            const url = document.getElementById("weblink-input").value;
-
+            const url = document.getElementById("weblink-input").value.trim();
+            const responseArea = document.getElementById("weblink-response");
+            
+            if (!url) {
+                showModal('URL Required', 'Please enter a valid URL before searching.', 'warning');
+                return;
+            }
+            
+            // Validate URL format
             try {
-                const res = await fetch("/api/weblink", {
+                new URL(url);
+            } catch (e) {
+                showModal('Invalid URL', 'Please enter a valid URL (including http:// or https://).', 'error');
+                return;
+            }
+            
+            const searchBtn = document.querySelector('#weblinks-content .btn');
+            
+            // Create progress container if it doesn't exist
+            let progressContainer = document.getElementById('weblink-progress-container');
+            if (!progressContainer) {
+                progressContainer = document.createElement('div');
+                progressContainer.id = 'weblink-progress-container';
+                progressContainer.style.display = 'none';
+                progressContainer.style.marginTop = '14px';
+                progressContainer.innerHTML = `
+                    <div style="height:10px; background:#e2e8f0; border-radius:6px; overflow:hidden;">
+                        <div id="weblink-progress-bar" style="height:10px; width:0%; background:#667eea; transition: width .3s ease;"></div>
+                    </div>
+                    <div id="weblink-progress-text" style="margin-top:8px; color:#4a5568; font-size:0.9rem;">Preparing...</div>
+                `;
+                // Insert after the query-controls div
+                const queryControls = document.querySelector('#weblinks-content .query-controls');
+                queryControls.insertAdjacentElement('afterend', progressContainer);
+            }
+            
+            const progressBar = document.getElementById('weblink-progress-bar');
+            const progressText = document.getElementById('weblink-progress-text');
+            
+            // Disable button and show progress
+            searchBtn.disabled = true;
+            searchBtn.innerHTML = '<div class="spinner"></div> Starting...';
+            responseArea.style.display = 'block';
+            responseArea.innerHTML = '';
+            progressContainer.style.display = 'block';
+            progressBar.style.width = '0%';
+            progressText.textContent = 'Starting weblink processing...';
+            
+            let jobId = null;
+            
+            try {
+                // Start the weblink processing job
+                const response = await fetch(`${API_BASE}/api/weblink`, {
                     method: "POST",
                     headers: {
                         "Content-Type": "application/json"
                     },
-                    body: JSON.stringify({ query: url, depth: 2 }) // 👈 here depth=2
+                    body: JSON.stringify({ 
+                        query: url, 
+                        depth: 2,
+                        max_workers: 4,
+                        batch_size: 100
+                    })
                 });
-
-                const data = await res.json();
-
-                const responseDiv = document.getElementById("weblink-response");
-                responseDiv.style.display = "block";
-                responseDiv.innerText = JSON.stringify(data, null, 2);
-
-                console.log("Response from /weblink:", data);
-            } catch (err) {
-                console.error("Error calling /weblink:", err);
+                
+                const result = await response.json();
+                
+                if (!response.ok) {
+                    throw new Error(result.detail || 'Failed to start weblink processing');
+                }
+                
+                jobId = result.job_id;
+                progressText.textContent = 'Job queued, starting scraping...';
+                
+            } catch (error) {
+                showModal('Weblink Processing Failed', error.message, 'error');
+                progressContainer.style.display = 'none';
+                searchBtn.disabled = false;
+                searchBtn.innerHTML = '➕ Search Web';
+                responseArea.innerHTML = `
+                    <div style="color: #742a2a; background: #fed7d7; padding: 15px; border-radius: 8px;">
+                        <strong>❌ Weblink Processing Failed!</strong><br>
+                        ${error.message}
+                    </div>
+                `;
+                return;
             }
+            
+            // Poll for progress updates
+            async function pollWeblinkProgress() {
+                try {
+                    const progressResponse = await fetch(`${API_BASE}/api/ingest/progress/${jobId}`);
+                    const progress = await progressResponse.json();
+                    
+                    const percentage = Math.max(0, Math.min(100, Number(progress.progress || 0)));
+                    progressBar.style.width = percentage + '%';
+                    
+                    let statusText = '';
+                    if (progress.step === 'scraping') {
+                        statusText = `Scraping content from ${progress.target_url || url}`;
+                    } else if (progress.step === 'processing_content') {
+                        const processed = progress.items_processed || 0;
+                        const total = progress.total_items || '?';
+                        statusText = `Processing content (${processed}/${total} pages)`;
+                        if (progress.current_url) {
+                            statusText += ` • Current: ${new URL(progress.current_url).hostname}`;
+                        }
+                    } else if (progress.step === 'indexing') {
+                        const docs = progress.processed_documents || 0;
+                        statusText = `Indexing content (${docs} documents processed)`;
+                    } else if (progress.step === 'finalizing') {
+                        statusText = 'Finalizing weblink processing...';
+                    } else if (progress.state) {
+                        statusText = progress.state.toLowerCase().replace('_', ' ');
+                    } else {
+                        statusText = 'Processing...';
+                    }
+                    
+                    progressText.textContent = `${statusText} • ${percentage}%`;
+                    
+                    // Handle completion
+                    if (progress.state === 'SUCCESS' || percentage >= 100) {
+                        progressBar.style.width = '100%';
+                        progressText.textContent = 'Weblink processing completed • 100%';
+                        
+                        responseArea.innerHTML = `
+                            <div style="color:#22543d;background:#c6f6d5;padding:15px;border-radius:8px;">
+                                <strong>✅ Weblink Processing Completed!</strong><br>
+                                🌐 URLs processed: ${progress.urls_processed || 0}<br>
+                                🧩 Chunks created: ${progress.chunks_created || 0}<br>
+                                📝 Content length: ${formatBytes(progress.total_content_length || 0)}<br>
+                                ⏱️ Processing time: ${progress.processing_time ? progress.processing_time.toFixed(2) + 's' : 'N/A'}<br>
+                                ⚡ Speed: ${progress.chunks_per_second ? progress.chunks_per_second.toFixed(1) + ' chunks/sec' : 'N/A'}
+                            </div>
+                        `;
+                        
+                        // Hide progress bar after 2 seconds
+                        setTimeout(() => {
+                            progressContainer.style.display = 'none';
+                        }, 2000);
+                        
+                        // Re-enable button and clear input
+                        searchBtn.disabled = false;
+                        searchBtn.innerHTML = '➕ Search Web';
+                        document.getElementById('weblink-input').value = '';
+                        
+                        // Show success modal
+                        showModal('Weblink Processing Complete', 
+                            `Successfully processed content from ${url} and added ${progress.chunks_created || 0} chunks to the knowledge base.`, 
+                            'success'
+                        );
+                        
+                        return;
+                    }
+                    
+                    // Handle failure
+                    if (progress.state === 'FAILURE') {
+                        const errorMsg = progress.error || 'Unknown error occurred during processing';
+                        
+                        responseArea.innerHTML = `
+                            <div style="color: #742a2a; background: #fed7d7; padding: 15px; border-radius: 8px;">
+                                <strong>❌ Weblink Processing Failed!</strong><br>
+                                ${errorMsg}
+                            </div>
+                        `;
+                        
+                        showModal('Weblink Processing Failed', errorMsg, 'error');
+                        progressContainer.style.display = 'none';
+                        searchBtn.disabled = false;
+                        searchBtn.innerHTML = '➕ Search Web';
+                        return;
+                    }
+                    
+                    // Continue polling
+                    setTimeout(pollWeblinkProgress, 1500);
+                    
+                } catch (error) {
+                    console.error('Error polling weblink progress:', error);
+                    // Continue polling even if there's a temporary error
+                    setTimeout(pollWeblinkProgress, 2000);
+                }
+            }
+            
+            // Start polling
+            pollWeblinkProgress();
+        }
+
+        // Helper function to format bytes
+        function formatBytes(bytes, decimals = 2) {
+            if (bytes === 0) return '0 Bytes';
+            const k = 1024;
+            const dm = decimals < 0 ? 0 : decimals;
+            const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
         }
 
         // Trigger addWeblink on Enter key press
@@ -1098,16 +1287,30 @@
                         // Sort documents by ID in descending order (newest first)
                         const sortedDocuments = result.documents.sort((a, b) => (b.id || 0) - (a.id || 0));
                         
-                        documentsList.innerHTML = sortedDocuments.map(doc => `
-                            <div class="document-item">
-                                <div class="document-title">📄 ${doc.filename}</div>
-                                <div class="document-info">
-                                    <span>🧩 ${doc.total_chunks || 0} chunks</span>
-                                    <span>📏 ${(doc.metadata?.file_size / 1024 / 1024).toFixed(2)} MB</span>
-                                    <span class="status-indicator status-healthy">✅ Active</span>
+                        documentsList.innerHTML = sortedDocuments.map(doc => {
+                            // Check if this is a URL source
+                            const isUrlSource = doc.metadata && doc.metadata.source_url;
+                            
+                            let titleDisplay;
+                            if (isUrlSource) {
+                                const sourceUrl = doc.metadata.source_url;
+                                const displayText = doc.metadata.domain || doc.filename || sourceUrl;
+                                titleDisplay = `🌐 <a href="${sourceUrl}" target="_blank" rel="noopener noreferrer" style="color: #667eea; text-decoration: underline; font-weight: inherit;">${displayText}</a>`;
+                            } else {
+                                titleDisplay = `📄 ${doc.filename}`;
+                            }
+                            
+                            return `
+                                <div class="document-item">
+                                    <div class="document-title">${titleDisplay}</div>
+                                    <div class="document-info">
+                                        <span>🧩 ${doc.total_chunks || 0} chunks</span>
+                                        <span>📏 ${isUrlSource ? 'Web Content' : (doc.metadata?.file_size / 1024 / 1024).toFixed(2) + ' MB'}</span>
+                                        <span class="status-indicator status-healthy">✅ Active</span>
+                                    </div>
                                 </div>
-                            </div>
-                        `).join('');
+                            `;
+                        }).join('');
                     }
                 } else {
                     throw new Error(result.detail || 'Failed to load documents');
