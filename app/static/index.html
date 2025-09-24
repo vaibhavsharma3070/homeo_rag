@@ -659,7 +659,7 @@
     </div>
 
     <script>
-        const API_BASE = 'http://localhost:8090';
+        const API_BASE = window.location.origin;
         let selectedFiles = [];
         let uploadedDocsIndex = new Map(); // filename -> { total_chunks, file_size }
 
@@ -995,6 +995,7 @@
                 });
                 
                 const result = await response.json();
+                console.log('result',result)
                 
                 if (response.ok) {
                     const referencesHtml = result.sources?.map(source => {

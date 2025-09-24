@@ -124,59 +124,66 @@ class RAGPipeline:
         return list(dict.fromkeys(keywords))
 
     def _prepare_context(self, results: List[Dict[str, Any]], query: str, max_chunks: int = 10, sentence_window: int = 1) -> List[str]:
-        """
-        Build context from search results with improved ranking.
-        Now handles multi-word phrases properly.
-        """
         query_keywords = self._extract_keywords(query)
         print(f'🔍 Query keywords: {query_keywords}')
-        
+
         ranked_contexts = []
 
         for result in results:
             text = result['text'].replace('--- Page', '').replace('---', '').strip()
-            text = ' '.join(text.split())
-            sentences = [s.strip() for s in text.split('.') if len(s.strip()) > 20]
+            text = ' '.join(text.split())  # normalize whitespace
+            # Better sentence splitting
+            sentences = [s.strip() for s in re.split(r'[.!?]\s*', text) if len(s.strip()) > 20]
 
-            # Score sentences by keyword overlap (case-insensitive)
             for idx, sentence in enumerate(sentences):
                 score = 0
                 sentence_lower = sentence.lower()
-                
+
                 for keyword in query_keywords:
                     keyword_lower = keyword.lower()
-
-                    # For multi-word phrases, check exact phrase match with boundaries
                     if " " in keyword_lower:
-                        pattern = rf"\b{re.escape(keyword_lower)}\b"
+                        pattern = rf"{re.escape(keyword_lower)}"
                         if re.search(pattern, sentence_lower):
-                            score += 3  # Higher score for phrase match
+                            score += 3
                     else:
-                        # Single word: require word boundary match only (no substring hits)
                         pattern = rf"\b{re.escape(keyword_lower)}\b"
                         if re.search(pattern, sentence_lower):
                             score += 2
-                
+
                 if score > 0:
-                    # Include neighboring sentences to add context
                     start = max(0, idx - sentence_window)
                     end = min(len(sentences), idx + sentence_window + 1)
-                    window_text = ". ".join(s for s in sentences[start:end])
+                    window_text = ". ".join(sentences[start:end])
                     ranked_contexts.append((score, window_text, result['score']))
 
-        # Sort by keyword score first, then by vector similarity score
         ranked_contexts.sort(key=lambda x: (x[0], x[2]), reverse=True)
-        # Deduplicate windows while preserving order
+
         seen = set()
         top_sentences = []
-        for _, sentence, _ in ranked_contexts:
+        for score, sentence, res_score in ranked_contexts:
             if sentence not in seen:
                 seen.add(sentence)
                 top_sentences.append(sentence)
             if len(top_sentences) >= max_chunks:
                 break
-        print('top_sentences =====> ',top_sentences)
+
+        # Force at least 5 sentences if available
+        if len(top_sentences) < 5:
+            for result in results:
+                text = ' '.join(result['text'].split())
+                sentences = [s.strip() for s in re.split(r'[.!?]\s*', text) if len(s.strip()) > 20]
+                for s in sentences:
+                    if s not in seen:
+                        seen.add(s)
+                        top_sentences.append(s)
+                    if len(top_sentences) >= 5:
+                        break
+                if len(top_sentences) >= 5:
+                    break
+
+        print('top_sentences =====> ', top_sentences)
         print(f"📝 Selected {len(top_sentences)} sentences for context")
+
         return [". ".join(top_sentences) + "."] if top_sentences else []
 
     def _create_sources(self, results: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
