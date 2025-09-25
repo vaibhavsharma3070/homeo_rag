@@ -10,24 +10,17 @@
             padding: 0;
             box-sizing: border-box;
         }
+        :root { --sidebar-width: 320px; --sidebar-width-collapsed: 72px; }
         body {
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background: #121212;
             min-height: 100vh;
-            color: #333;
+            color: #e5e7eb;
         }
-        .container {
-            max-width: 1200px;
-            margin: 0 auto;
-            padding: 20px;
-        }
+        .container { max-width: none; margin: 0 0 0 var(--sidebar-width); padding: 20px 24px; transition: margin .2s ease; }
+        body.sidebar-collapsed .container { margin-left: var(--sidebar-width-collapsed); }
         .header {
-            text-align: center;
-            margin-bottom: 40px;
-            background: rgba(255, 255, 255, 0.95);
-            padding: 30px;
-            border-radius: 20px;
-            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
+            display: none;
         }
         .header h1 {
             color: #4a5568;
@@ -39,14 +32,7 @@
             color: #718096;
             font-size: 1.1rem;
         }
-        .tabs {
-            display: flex;
-            background: rgba(255, 255, 255, 0.9);
-            border-radius: 12px;
-            padding: 6px;
-            margin-bottom: 30px;
-            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
-        }
+        .tabs { display: none; }
         .tab {
             flex: 1;
             padding: 12px 20px;
@@ -65,11 +51,10 @@
         }
         .tab-content {
             display: none;
-            background: rgba(255, 255, 255, 0.95);
+            background: #161616;
             border-radius: 16px;
-            padding: 30px;
-            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
-            backdrop-filter: blur(10px);
+            padding: 24px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
         }
         .tab-content.active {
             display: block;
@@ -86,7 +71,7 @@
             text-align: center;
             cursor: pointer;
             transition: all 0.3s ease;
-            background: rgba(102, 126, 234, 0.05);
+            background: rgba(255,255,255,0.03);
             margin-bottom: 20px;
         }
         .upload-area:hover {
@@ -99,17 +84,13 @@
             background: rgba(118, 75, 162, 0.15);
             transform: scale(1.02);
         }
-        .upload-text {
-            font-size: 1.1rem;
-            color: #4a5568;
-            margin-bottom: 10px;
-        }
+        .upload-text { font-size: 1.1rem; color: #d1d5db; margin-bottom: 10px; }
         .file-input {
             display: none;
         }
         .btn {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
+            background: #10a37f;
+            color: #0b0f14;
             border: none;
             padding: 12px 24px;
             border-radius: 8px;
@@ -117,7 +98,7 @@
             font-size: 1rem;
             font-weight: 500;
             transition: all 0.3s ease;
-            box-shadow: 0 4px 15px rgba(102, 126, 234, 0.3);
+            box-shadow: none;
         }
         .btn:hover {
             transform: translateY(-2px);
@@ -180,27 +161,28 @@
             text-align: center;
         }
         .response-area {
-            background: #f8fafc;
-            border: 1px solid #e2e8f0;
+            background: #0f1720;
+            border: 1px solid #2a2a2a;
             border-radius: 10px;
             padding: 20px;
             min-height: 200px;
             margin-top: 20px;
+            color: #e5e7eb;
         }
         /* Chat styles */
         .chat-wrapper {
             display: flex;
             flex-direction: column;
             height: 70vh;
-            background: rgba(255,255,255,0.95);
-            border: 1px solid #e2e8f0;
+            background: #0d0d0d;
+            border: 1px solid #2a2a2a;
             border-radius: 12px;
             overflow: hidden;
         }
         .chat-header {
             padding: 14px 16px;
-            background: #667eea;
-            color: #fff;
+            background: #1f1f1f;
+            color: #e5e7eb;
             font-weight: 600;
             display: flex;
             align-items: center;
@@ -210,15 +192,15 @@
             flex: 1;
             padding: 18px;
             overflow-y: auto;
-            background: #f8fafc;
+            background: #121212;
         }
         .message-row {
             display: flex;
             margin-bottom: 14px;
             align-items: flex-end;
         }
-        .message-row.user { justify-content: flex-start; }
-        .message-row.ai { justify-content: flex-end; }
+        .message-row.user { justify-content: flex-end; }
+        .message-row.ai { justify-content: flex-start; }
         .bubble {
             max-width: 70%;
             padding: 12px 14px;
@@ -227,48 +209,44 @@
             box-shadow: 0 2px 8px rgba(0,0,0,0.06);
         }
         .bubble.user {
-            background: #ffffff;
-            border: 1px solid #e2e8f0;
-            color: #2d3748;
-            border-bottom-left-radius: 6px;
+            background: #0b3b2f;
+            border: 1px solid #145a4a;
+            color: #e5fff5;
+            border-bottom-right-radius: 6px;
         }
         .bubble.ai {
-            background: #667eea;
-            color: #ffffff;
-            border-bottom-right-radius: 6px;
+            background: #1f2937;
+            border: 1px solid #2a2a2a;
+            color: #e5e7eb;
+            border-bottom-left-radius: 6px;
         }
         .message-meta {
             font-size: 0.75rem;
             color: #a0aec0;
             margin: 4px 8px;
         }
-        .chat-input-bar {
-            display: flex;
-            gap: 10px;
-            padding: 12px;
-            border-top: 1px solid #e2e8f0;
-            background: #fff;
-        }
+        .chat-input-bar { display: flex; gap: 10px; padding: 12px; border-top: 1px solid #2a2a2a; background: #1a1a1a; }
         .chat-text-input {
             flex: 1;
             padding: 12px 14px;
-            border: 2px solid #e2e8f0;
+            border: 2px solid #2a2a2a;
             border-radius: 10px;
             font-size: 1rem;
+            background: #101010;
+            color: #e5e7eb;
         }
         .chat-text-input:focus {
             outline: none;
-            border-color: #667eea;
-            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+            border-color: #10a37f;
+            box-shadow: 0 0 0 3px rgba(16, 163, 127, 0.15);
         }
-        .btn-light {
-            background: #ffffff;
-            color: #667eea;
-        }
+        .btn-light { background: #ffffff; color: #0b0f14; }
         .btn-light:hover {
             transform: translateY(-2px);
-            box-shadow: 0 6px 20px rgba(102, 126, 234, 0.25);
+            box-shadow: 0 6px 20px rgba(16, 163, 127, 0.25);
         }
+        .icon-btn { background: transparent; border: none; color: #e5e7eb; cursor: pointer; padding: 6px; border-radius: 8px; transition: background .2s ease; }
+        .icon-btn:hover { background: #2a2a2a; }
         .sources-toggle {
             margin-top: 10px;
             font-size: 0.85rem;
@@ -285,32 +263,24 @@
             line-height: 1.6;
             color: #2d3748;
         }
-        .references {
-            margin-top: 20px;
-            padding-top: 20px;
-            border-top: 2px solid #e2e8f0;
-        }
+        .references { margin-top: 20px; padding-top: 20px; border-top: 2px solid #2a2a2a; }
         .reference-item {
-            background: white;
-            border: 1px solid #e2e8f0;
+            background: #161616;
+            border: 1px solid #2a2a2a;
             border-radius: 8px;
             padding: 15px;
             margin-bottom: 10px;
             box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
         }
-        .reference-header {
-            font-weight: 600;
-            color: #667eea;
-            margin-bottom: 8px;
-        }
+        .reference-header { font-weight: 600; color: #e5e7eb; margin-bottom: 8px; }
         .reference-content {
-            color: #4a5568;
+            color: #d1d5db;
             font-size: 0.95rem;
             line-height: 1.5;
         }
         .reference-score {
-            background: #667eea;
-            color: white;
+            background: #10a37f;
+            color: #0b0f14;
             padding: 3px 8px;
             border-radius: 12px;
             font-size: 0.8rem;
@@ -363,14 +333,14 @@
             align-items: center;
             justify-content: center;
             gap: 10px;
-            color: #667eea;
+            color: #9ca3af;
             font-weight: 500;
         }
         .spinner {
             width: 20px;
             height: 20px;
-            border: 2px solid #e2e8f0;
-            border-top: 2px solid #667eea;
+            border: 2px solid #2a2a2a;
+            border-top: 2px solid #10a37f;
             border-radius: 50%;
             animation: spin 1s linear infinite;
         }
@@ -419,7 +389,7 @@
             margin-bottom: 30px;
         }
         .stat-card {
-            background: white;
+            background: #161616;
             padding: 20px;
             border-radius: 10px;
             text-align: center;
@@ -457,7 +427,7 @@
         }
 
         .modal-content {
-            background: white;
+            background: #1f1f1f;
             border-radius: 12px;
             padding: 30px;
             max-width: 500px;
@@ -505,12 +475,7 @@
             color: #38a169;
         }
 
-        .modal-title {
-            font-size: 1.5rem;
-            font-weight: 600;
-            color: #2d3748;
-            margin: 0;
-        }
+        .modal-title { font-size: 1.5rem; font-weight: 600; color: #e5e7eb; margin: 0; }
 
         .modal-close {
             position: absolute;
@@ -530,12 +495,32 @@
             color: #4a5568;
         }
 
-        .modal-body {
-            color: #4a5568;
-            font-size: 1.1rem;
-            line-height: 1.6;
-            margin-bottom: 25px;
+        .modal-body { color: #d1d5db; font-size: 1.1rem; line-height: 1.6; margin-bottom: 25px; }
+
+        /* Sidebar */
+        .sidebar {
+            position: fixed;
+            top: 0;
+            left: 0;
+            bottom: 0;
+            width: var(--sidebar-width);
+            background: #1f1f1f;
+            border-right: 1px solid #2a2a2a;
+            display: flex;
+            flex-direction: column;
+            transition: width .2s ease;
         }
+        body.sidebar-collapsed .sidebar { width: var(--sidebar-width-collapsed); }
+        .sidebar-header { padding: 14px 12px; border-bottom: 1px solid #2a2a2a; display: flex; align-items: center; justify-content: space-between; }
+        .brand { font-weight: 700; color: #e5e7eb; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .sidebar-content { flex: 1; overflow-y: auto; padding: 10px; }
+        .nav-title { font-size: 0.8rem; color: #9ca3af; padding: 8px 10px; }
+        .nav-item { width: 100%; text-align: left; padding: 10px 12px; color: #d1d5db; background: transparent; border: none; border-radius: 8px; cursor: pointer; transition: background .2s ease, color .2s ease; display: flex; align-items: center; gap: 10px; }
+        .nav-item:hover { background: #2a2a2a; color: #fff; }
+        .nav-item.active { background: #3a3a3a; color: #fff; }
+        body.sidebar-collapsed .nav-title { display: none; }
+        body.sidebar-collapsed .nav-text { display: none; }
+        .nav-icon { width: 18px; height: 18px; display: inline-block; }
 
         .modal-footer {
             display: flex;
@@ -642,19 +627,40 @@
         </div>
     </div>
 
+    <div class="sidebar">
+        <div class="sidebar-header">
+            <div class="brand">🌿 Homeopathy RAG</div>
+            <button class="icon-btn" title="Collapse sidebar" onclick="toggleSidebar()" aria-label="Collapse sidebar">
+                <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <polyline points="15 18 9 12 15 6"></polyline>
+                </svg>
+            </button>
+        </div>
+        <div class="sidebar-content">
+            <div class="nav-title">Navigate</div>
+            <button class="nav-item active" data-section="query" onclick="navigate('query', this)">
+                <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><path d="M9 9h6M9 13h3"></path></svg>
+                <span class="nav-text">Ask Questions</span>
+            </button>
+            <button class="nav-item" data-section="upload" onclick="navigate('upload', this)">
+                <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                <span class="nav-text">Upload Documents</span>
+            </button>
+            <button class="nav-item" data-section="weblinks" onclick="navigate('weblinks', this)">
+                <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 1 7 0l3 3a5 5 0 0 1-7 7l-1-1"/><path d="M14 11a5 5 0 0 1-7 0l-3-3a5 5 0 0 1 7-7l1 1"/></svg>
+                <span class="nav-text">Weblinks</span>
+            </button>
+            <button class="nav-item" data-section="documents" onclick="navigate('documents', this)">
+                <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                <span class="nav-text">Manage Documents</span>
+            </button>
+            <button class="nav-item" data-section="stats" onclick="navigate('stats', this)">
+                <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+                <span class="nav-text">Statistics</span>
+            </button>
+        </div>
+    </div>
     <div class="container">
-        <div class="header">
-            <h1>🌿 Homeopathy Knowledge Base</h1>
-            <p>AI-powered document search and question answering system</p>
-        </div>
-
-        <div class="tabs">
-            <div class="tab active" onclick="switchTab('upload')">📤 Upload Documents</div>
-            <div class="tab" onclick="switchTab('weblinks')">🔗 Weblinks</div> 
-            <div class="tab" onclick="switchTab('query')">❓ Ask Questions</div>
-            <div class="tab" onclick="switchTab('documents')">📚 Manage Documents</div>
-            <div class="tab" onclick="switchTab('stats')">📊 Statistics</div>
-        </div>
 
         <!-- Upload Tab -->
         <div class="tab-content active" id="upload-content">
@@ -676,10 +682,10 @@
                 </button>
             </div>
             <div id="progress-container" style="display:none; margin-top:14px;">
-                <div style="height:10px; background:#e2e8f0; border-radius:6px; overflow:hidden;">
-                    <div id="ingest-progress-bar" style="height:10px; width:0%; background:#667eea; transition: width .3s ease;"></div>
+                <div style="height:10px; background:#2a2a2a; border-radius:6px; overflow:hidden;">
+                    <div id="ingest-progress-bar" style="height:10px; width:0%; background:#10a37f; transition: width .3s ease;"></div>
                 </div>
-                <div id="progress-text" style="margin-top:8px; color:#4a5568; font-size:0.9rem;">Preparing...</div>
+                <div id="progress-text" style="margin-top:8px; color:#9ca3af; font-size:0.9rem;">Preparing...</div>
             </div>
             
             <div class="response-area" id="upload-response" style="display: none;"></div>
@@ -690,7 +696,13 @@
             <div class="chat-wrapper">
                 <div class="chat-header">
                     <span>💬 Chat</span>
-                    <button class="btn btn-light" id="new-chat-btn" onclick="newChat()">🆕 New Chat</button>
+                    <button class="icon-btn" id="new-chat-btn" title="New Chat" onclick="newChat()" aria-label="New Chat">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <circle cx="12" cy="12" r="10"></circle>
+                            <line x1="12" y1="8" x2="12" y2="16"></line>
+                            <line x1="8" y1="12" x2="16" y2="12"></line>
+                        </svg>
+                    </button>
                 </div>
                 <div class="chat-messages" id="chat-messages"></div>
                 <div class="chat-input-bar">
@@ -823,22 +835,35 @@
             return { validFiles, invalidFiles };
         }
 
-        // Tab switching
-        function switchTab(tabName) {
-            // Remove active class from all tabs and contents
-            document.querySelectorAll('.tab').forEach(tab => tab.classList.remove('active'));
-            document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
-            
-            // Add active class to selected tab and content
-            event.target.classList.add('active');
-            document.getElementById(tabName + '-content').classList.add('active');
-            
-            // Load data when switching to certain tabs
-            if (tabName === 'documents') {
-                loadDocuments();
-            } else if (tabName === 'stats') {
-                loadStats();
-            }
+        // Sidebar navigation replacing old tabs
+        function navigate(section, btn) {
+            // Toggle active nav buttons
+            document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
+            if (btn) btn.classList.add('active');
+
+            // Toggle visible panels
+            const sections = {
+                upload: 'upload-content',
+                weblinks: 'weblinks-content',
+                query: 'query-content',
+                documents: 'documents-content',
+                stats: 'stats-content'
+            };
+            Object.values(sections).forEach(id => {
+                const el = document.getElementById(id);
+                if (el) el.style.display = 'none';
+            });
+            const targetId = sections[section];
+            const targetEl = document.getElementById(targetId);
+            if (targetEl) targetEl.style.display = 'block';
+
+            // Load on demand
+            if (section === 'documents') loadDocuments();
+            if (section === 'stats') loadStats();
+        }
+
+        function toggleSidebar() {
+            document.body.classList.toggle('sidebar-collapsed');
         }
 
         // File upload handling
@@ -1099,7 +1124,7 @@
                     if (isUrlSource) {
                         const sourceUrl = documentMetadata.source_url;
                         const displayText = documentMetadata.domain || sourceUrl;
-                        sourceDisplay = `🌐 <a href="${sourceUrl}" target="_blank" rel="noopener noreferrer" style="color: #667eea; text-decoration: underline;">${displayText}</a>`;
+                        sourceDisplay = `🌐 <a href="${sourceUrl}" target="_blank" rel="noopener noreferrer" style="color: #e5e7eb; text-decoration: underline;">${displayText}</a>`;
                     } else {
                         sourceDisplay = `📄 ${source.filename || 'Unknown Document'}`;
                     }
@@ -1117,8 +1142,8 @@
                     
                     responseArea.innerHTML = `
                         <div class="response-content">
-                            <h3 style="color: #667eea; margin-bottom: 15px;">🤖 AI Response</h3>
-                            <div style="background: white; padding: 20px; border-radius: 8px; border-left: 4px solid #667eea; margin-bottom: 20px;">
+                            <h3 style="color: #e5e7eb; margin-bottom: 15px;">🤖 AI Response</h3>
+                            <div style="background: #161616; color:#e5e7eb; padding: 20px; border-radius: 8px; border-left: 4px solid #10a37f; margin-bottom: 20px;">
                                 ${result.answer.replace(/\n/g, '<br>')}
                             </div>
                             
@@ -1181,10 +1206,10 @@
                 progressContainer.style.display = 'none';
                 progressContainer.style.marginTop = '14px';
                 progressContainer.innerHTML = `
-                    <div style="height:10px; background:#e2e8f0; border-radius:6px; overflow:hidden;">
-                        <div id="weblink-progress-bar" style="height:10px; width:0%; background:#667eea; transition: width .3s ease;"></div>
+                    <div style="height:10px; background:#2a2a2a; border-radius:6px; overflow:hidden;">
+                        <div id="weblink-progress-bar" style="height:10px; width:0%; background:#10a37f; transition: width .3s ease;"></div>
                     </div>
-                    <div id="weblink-progress-text" style="margin-top:8px; color:#4a5568; font-size:0.9rem;">Preparing...</div>
+                    <div id="weblink-progress-text" style="margin-top:8px; color:#9ca3af; font-size:0.9rem;">Preparing...</div>
                 `;
                 // Insert after the query-controls div
                 const queryControls = document.querySelector('#weblinks-content .query-controls');
@@ -1674,6 +1699,8 @@
             if (!confirm('Start a new chat? This will clear your chat history.')) return;
             chatMessages = [];
             try { localStorage.removeItem(CHAT_STORAGE_KEY); } catch (_) {}
+            const container = document.getElementById('chat-messages');
+            if (container) container.innerHTML = '';
             renderChat();
         }
 
@@ -1702,6 +1729,8 @@
             // Load chat history
             loadChatHistory();
             renderChat();
+            // Default to chat view in new layout
+            navigate('query', document.querySelector('.nav-item[data-section="query"]'));
         });
 
         // Build/update an index of uploaded documents from the server
