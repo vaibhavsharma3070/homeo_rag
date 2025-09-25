@@ -116,9 +116,12 @@ class OllamaConnector(LLMConnector):
     def _clean_response(self, response: str) -> str:
         """Light cleanup; do not alter meaning."""
         cleaned = ' '.join(response.split()).strip()
-        for start in ["Answer:", "A:", "Context:", "QUESTION:", "Q:"]:
+        # Strip common role/prefix tokens
+        for start in ["Answer:", "A:", "Context:", "QUESTION:", "Q:", "Assistant:", "assistant:"]:
             if cleaned.lower().startswith(start.lower()):
                 cleaned = cleaned[len(start):].lstrip(' :').strip()
+        # Remove model role markers like <|assistant|> or <|user|>
+        cleaned = re.sub(r"^<\|(?:assistant|user|system)\|>\s*", "", cleaned, flags=re.IGNORECASE)
         return cleaned
 
     def simple_summarize(self, context_text: str, query: str, max_sentences: int = 2) -> str:

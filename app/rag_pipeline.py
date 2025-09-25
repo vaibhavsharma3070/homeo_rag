@@ -62,6 +62,29 @@ class RAGPipeline:
         try:
             logger.info(f"Processing query: '{query}'")
 
+            # Small-talk/greeting bypass: send directly to LLM without retrieval
+            if self._is_small_talk(query):
+                prompt = (
+                    "You are a friendly assistant. Reply concisely and warmly to the user's greeting or small-talk.\n"
+                    f"User: {query}\n"
+                    "Assistant:"
+                )
+                answer = self.llm_connector.generate_response(prompt).strip() or "Hello! How can I help you today?"
+                self.add_to_memory(query, answer)
+                return {
+                    'query': query,
+                    'answer': answer,
+                    'context_used': [],
+                    'sources': [],
+                    'confidence': 'chat',
+                    'metadata': {
+                        'total_sources': 0,
+                        'avg_relevance_score': 0.0,
+                        'llm_provider': self.llm_connector.__class__.__name__,
+                        'bypass': 'small_talk'
+                    }
+                }
+
             # Step 1: Retrieve relevant KB results
             extracted = self._extract_keywords(query)
             acronyms_only = [k for k in extracted if k.isupper() and len(k) > 1]
@@ -128,6 +151,25 @@ class RAGPipeline:
         else:
             keywords.extend(words)
         return list(dict.fromkeys(keywords))
+
+    def _is_small_talk(self, query: str) -> bool:
+        text = (query or "").strip()
+        if not text:
+            return False
+        # Comprehensive, case-insensitive regex for greetings/small-talk
+        pattern = re.compile(
+            r"^\s*(?:"
+            r"(?:hi|hello|hey|yo|hiya|heya|howdy)(?:\s+there)?|"
+            r"good\s+(?:morning|afternoon|evening|night)|"
+            r"greetings|namaste|hola|"
+            r"what'?s\s+up|whats\s+up|sup|"
+            r"how\s+are\s+you\??|"
+            r"thank(?:s|\s+you)|"
+            r"bye|goodbye|see\s+you|see\s+ya"
+            r")\s*[!.?]*\s*$",
+            re.IGNORECASE,
+        )
+        return bool(pattern.match(text))
 
     def _generate_response(self, original_query: str, context_chunks: List[str]) -> str:
         if not context_chunks:
