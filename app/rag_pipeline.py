@@ -6,62 +6,88 @@ from app.config import settings
 from nltk.corpus import stopwords
 from nltk import ngrams
 import re
+import numpy as np
+
+from langchain.memory import ConversationBufferMemory
+from langchain.embeddings import SentenceTransformerEmbeddings
 
 STOPWORDS = set(stopwords.words("english"))
 
 class RAGPipeline:
-    """RAG pipeline."""
+    """RAG pipeline with cost-efficient conversation memory using LangChain."""
 
     def __init__(self):
         if settings.vector_backend.lower() == 'pgvector':
             self.vector_store = PGVectorStore()
         self.llm_connector: OllamaConnector = LLMFactory.create_connector()
 
+        # LangChain memory: stores conversation history
+        self.embedding_model = SentenceTransformerEmbeddings(model_name=settings.embedding_model)
+        self.memory = ConversationBufferMemory(memory_key="chat_history", return_messages=True)
+
+    # -------------------- MEMORY FUNCTIONS --------------------
+    def add_to_memory(self, user_message: str, ai_response: str):
+        """Add user and AI messages to memory."""
+        self.memory.save_context({"input": user_message}, {"output": ai_response})
+
+    def get_relevant_history(self, query: str, top_k: int = 5) -> List[str]:
+        """Retrieve top-k relevant conversation chunks using embeddings."""
+        messages = self.memory.load_memory_variables({}).get("chat_history", [])
+        if not messages:
+            return []
+
+        # Extract text from messages
+        message_texts = [m.content for m in messages if hasattr(m, "content")]
+        embeddings = self.embedding_model.embed_documents(message_texts)
+        query_emb = self.embedding_model.embed_query(query)
+
+        # Cosine similarity
+        def cosine(a, b):
+            return np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b))
+
+        scored = [(msg, cosine(query_emb, emb)) for msg, emb in zip(messages, embeddings)]
+        scored = sorted(scored, key=lambda x: x[1], reverse=True)
+
+        top_messages = [m.content for m, s in scored[:top_k]]
+        return top_messages
+
+    # -------------------- EXISTING FUNCTIONS --------------------
     def process_query(self, query: str, top_k: int = 6, min_score: float = 0.2) -> Dict[str, Any]:
         """
         Flow:
-        1. Initial search with original query
-        2. Filter by score
-        3. Build context and generate answer
+        1. Retrieve relevant conversation history
+        2. Retrieve relevant KB
+        3. Generate LLM answer using combined context
         """
         try:
             logger.info(f"Processing query: '{query}'")
-            
-            # Step 1: Initial search (prefer acronym-only search if present)
+
+            # Step 1: Retrieve relevant KB results
             extracted = self._extract_keywords(query)
             acronyms_only = [k for k in extracted if k.isupper() and len(k) > 1]
             search_query = " ".join(acronyms_only) if acronyms_only else query
-            if acronyms_only:
-                logger.info(f"Using acronym-focused search query: '{search_query}'")
-            # When using acronyms/phrases, widen the search a bit
             effective_top_k = max(top_k, 10) if acronyms_only else top_k
-            initial_results = self.vector_store.search(search_query, top_k=effective_top_k)
-            logger.info(f"Initial search retrieved {len(initial_results)} results")
+            kb_results = self.vector_store.search(search_query, top_k=effective_top_k)
+            filtered_kb = [r for r in kb_results if r['score'] >= min_score]
 
-            # Step 2: Filter results
-            filtered_initial = [r for r in initial_results if r['score'] >= min_score]
-            print(f"filtered_initial :- {filtered_initial[:2] if len(filtered_initial) > 2 else filtered_initial}")
-            logger.info(f"After filtering: {len(filtered_initial)} results remain")
+            # Step 2: Retrieve relevant conversation history
+            relevant_history = self.get_relevant_history(query, top_k=3)
+            print('here is the relevant history =====', relevant_history)
 
-            search_results = filtered_initial
+            # Step 3: Combine KB + conversation
+            context_chunks = [r['text'] for r in filtered_kb] + relevant_history
+            if not context_chunks:
+                return self._empty_response(query, f"I don't have information about '{query}'.")
 
-            # Step 3: Handle no results case
-            if not search_results:
-                logger.info("No results found for the given query")
-                return self._empty_response(
-                    query, 
-                    f"I don't have information about '{query}'. Please try rephrasing your question or provide more context."
-                )
-
-            # Step 4: Prepare context and generate response
-            context_chunks = self._prepare_context(search_results, query)
-            sources = self._create_sources(search_results)
-
-            logger.info("Generating response with LLM...")
+            # Step 4: Generate answer using combined context
             answer = self._generate_response(query, context_chunks)
-            logger.info(f"LLM response generated: {len(answer)} characters")
 
-            avg_score = sum(r['score'] for r in search_results) / len(search_results)
+            # Step 5: Update memory
+            self.add_to_memory(query, answer)
+
+            # Step 6: Sources and confidence
+            sources = self._create_sources(filtered_kb)
+            avg_score = sum(r['score'] for r in filtered_kb) / len(filtered_kb) if filtered_kb else 0.0
             confidence = self._calculate_confidence(avg_score, query, context_chunks)
 
             return {
@@ -81,145 +107,34 @@ class RAGPipeline:
             logger.error(f"Error processing query: {e}", exc_info=True)
             return self._error_response(query, str(e))
 
+    # -------------------- ORIGINAL HELPER FUNCTIONS --------------------
     def _extract_keywords(self, query: str) -> List[str]:
-        """
-        Dynamic keyword extraction:
-        - Detects multi-word technical terms (using n-grams)
-        - Removes stopwords
-        - Preserves acronyms (IT, AI, API, etc.)
-        - Falls back to single words if no n-gram matches
-        """
         query_clean = query.lower().replace("?", "").strip()
         words = [w for w in query_clean.split() if w not in STOPWORDS and len(w) > 2]
-
-        # Prefer acronyms if present: return ONLY acronyms and their lowercase variants
         tokens = re.findall(r"[A-Za-z0-9]+", query)
         acronyms = [t for t in tokens if t.isupper() and len(t) > 1]
         if acronyms:
             dedup_acronyms = list(dict.fromkeys(acronyms))
             return dedup_acronyms + [a.lower() for a in dedup_acronyms]
-
         keywords = []
-
-        # 1. Preserve acronyms (from original query, not lowercased) — robust to punctuation
         for w in tokens:
             if w.isupper() and len(w) > 1:
                 keywords.append(w)
-
-        # 2. Try bigrams and trigrams (multi-word technical phrases)
         bigrams = [" ".join(bg) for bg in ngrams(words, 2)]
         trigrams = [" ".join(tg) for tg in ngrams(words, 3)]
-
-        # Keep n-grams that look meaningful (appear in query as-is)
         meaningful_phrases = [p for p in trigrams + bigrams if p in query_clean]
-
         if meaningful_phrases:
             keywords.extend(meaningful_phrases)
-            logger.info(f"🔍 Found dynamic phrases: {meaningful_phrases}")
         else:
-            # 3. Fallback to single-word keywords
             keywords.extend(words)
-
-        # Deduplicate and return
         return list(dict.fromkeys(keywords))
 
-    def _prepare_context(self, results: List[Dict[str, Any]], query: str, max_chunks: int = 10, sentence_window: int = 1) -> List[str]:
-        query_keywords = self._extract_keywords(query)
-        print(f'🔍 Query keywords: {query_keywords}')
-
-        ranked_contexts = []
-
-        for result in results:
-            text = result['text'].replace('--- Page', '').replace('---', '').strip()
-            text = ' '.join(text.split())  # normalize whitespace
-            # Better sentence splitting
-            sentences = [s.strip() for s in re.split(r'[.!?]\s*', text) if len(s.strip()) > 20]
-
-            for idx, sentence in enumerate(sentences):
-                score = 0
-                sentence_lower = sentence.lower()
-
-                for keyword in query_keywords:
-                    keyword_lower = keyword.lower()
-                    if " " in keyword_lower:
-                        pattern = rf"{re.escape(keyword_lower)}"
-                        if re.search(pattern, sentence_lower):
-                            score += 3
-                    else:
-                        pattern = rf"\b{re.escape(keyword_lower)}\b"
-                        if re.search(pattern, sentence_lower):
-                            score += 2
-
-                if score > 0:
-                    start = max(0, idx - sentence_window)
-                    end = min(len(sentences), idx + sentence_window + 1)
-                    window_text = ". ".join(sentences[start:end])
-                    ranked_contexts.append((score, window_text, result['score']))
-
-        ranked_contexts.sort(key=lambda x: (x[0], x[2]), reverse=True)
-
-        seen = set()
-        top_sentences = []
-        for score, sentence, res_score in ranked_contexts:
-            if sentence not in seen:
-                seen.add(sentence)
-                top_sentences.append(sentence)
-            if len(top_sentences) >= max_chunks:
-                break
-
-        # Force at least 5 sentences if available
-        if len(top_sentences) < 5:
-            for result in results:
-                text = ' '.join(result['text'].split())
-                sentences = [s.strip() for s in re.split(r'[.!?]\s*', text) if len(s.strip()) > 20]
-                for s in sentences:
-                    if s not in seen:
-                        seen.add(s)
-                        top_sentences.append(s)
-                    if len(top_sentences) >= 5:
-                        break
-                if len(top_sentences) >= 5:
-                    break
-
-        print('top_sentences =====> ', top_sentences)
-        print(f"📝 Selected {len(top_sentences)} sentences for context")
-
-        return [". ".join(top_sentences) + "."] if top_sentences else []
-
-    def _create_sources(self, results: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        """Create source information from search results - return only the most relevant source."""
-        if not results:
-            return []
-        
-        # Sort results by relevance score (highest first) and take only the top one
-        sorted_results = sorted(results, key=lambda x: x['score'], reverse=True)
-        top_result = sorted_results[0]
-        
-        src = {
-            'filename': top_result['filename'],
-            'document_id': top_result['document_id'],
-            'relevance_score': round(top_result['score'], 4),
-            'metadata': top_result.get('metadata', {})  # Add this line
-        }
-        if top_result.get('chunk_id'):
-            src['chunk_id'] = top_result['chunk_id']
-        text = ' '.join(top_result['text'].replace('--- Page', '').replace('---', '').split())
-        src['preview'] = text[:80] + "..." if len(text) > 80 else text
-        
-        return [src]
-
     def _generate_response(self, original_query: str, context_chunks: List[str]) -> str:
-        """Generate response strictly from provided context."""
         if not context_chunks:
             return "I don't have information about this."
-
-        # Combine all chunks with numbering for clarity
         context_text = "\n\n".join([f"Context {i+1}: {c}" for i, c in enumerate(context_chunks)])
-        
         prompt = f"""
 You are a helpful assistant. Answer ONLY based on the provided information below. Do not use any external knowledge.
-
-IMPORTANT: Base your answer STRICTLY on the information provided below. If the information doesn't fully answer the question, say so.
 
 Information from knowledge base:
 {context_text}
@@ -233,39 +148,20 @@ Instructions:
 - Provide a clear, direct answer based solely on the given context
 
 Answer:"""
-
         try:
-            print(f"🤖 SENDING PROMPT TO LLM:")
-            print(f"📋 Context length: {len(context_text)} chars")
-            
             response = self.llm_connector.generate_response(prompt)
-            print(f"🤖 LLM GENERATED RESPONSE: '{response}'")
-            
-            # Fallback to dynamic summarization if LLM gives too short response
             if len(response.strip()) < 20:
-                logger.warning("LLM response too short, using fallback summarization")
                 from itertools import islice
                 sentences = " ".join(context_chunks).split('. ')
                 response = ". ".join(islice(sentences, 0, min(8, len(sentences)))) + "."
-                print(f"📝 FALLBACK RESPONSE: '{response}'")
-            
             return response.strip()
-            
         except Exception as e:
-            logger.error(f"Error generating LLM response: {e}")
-            # Fallback summarization
             sentences = " ".join(context_chunks).split('. ')
             fallback_response = ". ".join(sentences[:5]) + "."
-            print(f"🚨 ERROR FALLBACK: '{fallback_response}'")
             return fallback_response
 
-    def _calculate_confidence(self, avg_score: float, query: str = "", 
-                            context_chunks: List[str] = None) -> str:
-        """
-        Confidence calculation based on relevance score and keyword coverage.
-        """
+    def _calculate_confidence(self, avg_score: float, query: str = "", context_chunks: List[str] = None) -> str:
         base_confidence = "low"
-        
         if avg_score > 0.6:
             base_confidence = "high"
         elif avg_score > 0.4:
@@ -274,38 +170,21 @@ Answer:"""
             base_confidence = "low"
         else:
             base_confidence = "very_low"
-        
-        # Adjust confidence based on keyword presence
         if query and context_chunks:
             query_keywords = self._extract_keywords(query)
             context_text = " ".join(context_chunks).lower()
-            
-            keyword_matches = 0
-            for kw in query_keywords:
-                kw_lower = kw.lower()
-                if " " in kw_lower:  # Multi-word phrase
-                    pattern = rf"\b{re.escape(kw_lower)}\b"
-                    if re.search(pattern, context_text):
-                        keyword_matches += 1
-                else:  # Single word
-                    pattern = rf"\b{re.escape(kw_lower)}\b"
-                    if re.search(pattern, context_text):
-                        keyword_matches += 1
-            
+            keyword_matches = sum(
+                1 for kw in query_keywords if re.search(rf"\b{re.escape(kw.lower())}\b", context_text)
+            )
             keyword_ratio = keyword_matches / len(query_keywords) if query_keywords else 0
-            
-            # Boost confidence if good keyword coverage
-            if keyword_ratio >= 0.7:  # 70% of keywords found
+            if keyword_ratio >= 0.7:
                 if base_confidence == "low":
                     base_confidence = "medium"
                 elif base_confidence == "very_low":
                     base_confidence = "low"
-        
-        logger.info(f"📊 Confidence calculated: {base_confidence}")
         return base_confidence
 
     def _empty_response(self, query: str, msg: str) -> Dict[str, Any]:
-        """Generate empty response structure."""
         return {
             'query': query,
             'answer': msg,
@@ -320,7 +199,6 @@ Answer:"""
         }
 
     def _error_response(self, query: str, err: str) -> Dict[str, Any]:
-        """Generate error response structure."""
         return {
             'query': query,
             'answer': f"An error occurred while processing your query: {err}",
@@ -334,6 +212,24 @@ Answer:"""
                 'error': err
             }
         }
+
+    def _create_sources(self, results: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        if not results:
+            return []
+        sorted_results = sorted(results, key=lambda x: x['score'], reverse=True)
+        top_result = sorted_results[0]
+        src = {
+            'filename': top_result['filename'],
+            'document_id': top_result['document_id'],
+            'relevance_score': round(top_result['score'], 4),
+            'metadata': top_result.get('metadata', {})
+        }
+        if top_result.get('chunk_id'):
+            src['chunk_id'] = top_result['chunk_id']
+        text = ' '.join(top_result['text'].replace('--- Page', '').replace('---', '').split())
+        src['preview'] = text[:80] + "..." if len(text) > 80 else text
+        return [src]
+
     
     # Keep existing utility methods unchanged
     def add_documents(self, documents: List[Dict[str, Any]]) -> bool:

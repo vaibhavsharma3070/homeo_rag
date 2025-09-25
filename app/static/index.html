@@ -187,6 +187,100 @@
             min-height: 200px;
             margin-top: 20px;
         }
+        /* Chat styles */
+        .chat-wrapper {
+            display: flex;
+            flex-direction: column;
+            height: 70vh;
+            background: rgba(255,255,255,0.95);
+            border: 1px solid #e2e8f0;
+            border-radius: 12px;
+            overflow: hidden;
+        }
+        .chat-header {
+            padding: 14px 16px;
+            background: #667eea;
+            color: #fff;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+        .chat-messages {
+            flex: 1;
+            padding: 18px;
+            overflow-y: auto;
+            background: #f8fafc;
+        }
+        .message-row {
+            display: flex;
+            margin-bottom: 14px;
+            align-items: flex-end;
+        }
+        .message-row.user { justify-content: flex-start; }
+        .message-row.ai { justify-content: flex-end; }
+        .bubble {
+            max-width: 70%;
+            padding: 12px 14px;
+            border-radius: 14px;
+            line-height: 1.5;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+        }
+        .bubble.user {
+            background: #ffffff;
+            border: 1px solid #e2e8f0;
+            color: #2d3748;
+            border-bottom-left-radius: 6px;
+        }
+        .bubble.ai {
+            background: #667eea;
+            color: #ffffff;
+            border-bottom-right-radius: 6px;
+        }
+        .message-meta {
+            font-size: 0.75rem;
+            color: #a0aec0;
+            margin: 4px 8px;
+        }
+        .chat-input-bar {
+            display: flex;
+            gap: 10px;
+            padding: 12px;
+            border-top: 1px solid #e2e8f0;
+            background: #fff;
+        }
+        .chat-text-input {
+            flex: 1;
+            padding: 12px 14px;
+            border: 2px solid #e2e8f0;
+            border-radius: 10px;
+            font-size: 1rem;
+        }
+        .chat-text-input:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+        .btn-light {
+            background: #ffffff;
+            color: #667eea;
+        }
+        .btn-light:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(102, 126, 234, 0.25);
+        }
+        .sources-toggle {
+            margin-top: 10px;
+            font-size: 0.85rem;
+            cursor: pointer;
+            text-decoration: underline;
+        }
+        .ai-sources {
+            margin-top: 10px;
+            background: rgba(255,255,255,0.15);
+            border-radius: 8px;
+            padding: 10px;
+        }
         .response-content {
             line-height: 1.6;
             color: #2d3748;
@@ -593,23 +687,21 @@
 
         <!-- Query Tab -->
         <div class="tab-content" id="query-content">
-            <div class="query-form">
-                <textarea class="query-input" id="query-input" 
-                         placeholder="Ask your question about homeopathy..."></textarea>
-                
-                <div class="query-controls">
-                    <button class="btn" onclick="submitQuery()">
-                        🔍 Search & Answer
-                    </button>
-                    
-                    <div class="top-k-control">
-                        <label for="top-k">Results:</label>
-                        <input type="number" class="top-k-input" id="top-k" value="5" min="1" max="20">
+            <div class="chat-wrapper">
+                <div class="chat-header">
+                    <span>💬 Chat</span>
+                    <button class="btn btn-light" id="new-chat-btn" onclick="newChat()">🆕 New Chat</button>
+                </div>
+                <div class="chat-messages" id="chat-messages"></div>
+                <div class="chat-input-bar">
+                    <input type="text" class="chat-text-input" id="chat-input" placeholder="Ask your question about homeopathy...">
+                    <div class="top-k-control" style="align-items:center; display:flex; gap:8px;">
+                        <label for="chat-top-k">Results:</label>
+                        <input type="number" class="top-k-input" id="chat-top-k" value="5" min="1" max="20">
                     </div>
+                    <button class="btn" id="send-btn" onclick="sendChatMessage()">➡️ Send</button>
                 </div>
             </div>
-            
-            <div class="response-area" id="query-response" style="display: none;"></div>
         </div>
 
         <!-- Documents Tab -->
@@ -1454,30 +1546,136 @@
             }
         }
 
-        // Enter key support for query input
-        document.getElementById('query-input').addEventListener('keydown', function(e) {
-            if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault();
-                submitQuery();
-            }
-        });
+        // Chat state
+        let chatMessages = [];
+        const CHAT_STORAGE_KEY = 'homeo_rag_chat_history';
 
-        // Prevent leading whitespace in the query input
-        document.getElementById('query-input').addEventListener('keydown', function(e) {
-            if ((e.key === ' ' || e.code === 'Space') && this.selectionStart === 0) {
-                e.preventDefault();
+        function loadChatHistory() {
+            try {
+                const raw = localStorage.getItem(CHAT_STORAGE_KEY);
+                chatMessages = Array.isArray(JSON.parse(raw)) ? JSON.parse(raw) : [];
+            } catch (_) {
+                chatMessages = [];
             }
-        });
-        document.getElementById('query-input').addEventListener('input', function() {
-            const originalValue = this.value;
-            const withoutLeading = originalValue.replace(/^\s+/, '');
-            if (originalValue !== withoutLeading) {
-                const removed = originalValue.length - withoutLeading.length;
-                const caret = Math.max((this.selectionStart || 0) - removed, 0);
-                this.value = withoutLeading;
-                this.setSelectionRange(caret, caret);
+        }
+
+        function saveChatHistory() {
+            try { localStorage.setItem(CHAT_STORAGE_KEY, JSON.stringify(chatMessages)); } catch (_) {}
+        }
+
+        function renderChat() {
+            const container = document.getElementById('chat-messages');
+            if (!container) return;
+            container.innerHTML = chatMessages.map((m, idx) => {
+                const roleClass = m.role === 'user' ? 'user' : 'ai';
+                const textHtml = (m.text || '').replace(/\n/g, '<br>');
+                const sourcesHtml = Array.isArray(m.sources) && m.sources.length > 0 ? `
+                    <div class="sources-toggle" onclick="toggleSources(${idx})">Sources (${m.sources.length})</div>
+                    <div class="ai-sources" id="sources-${idx}" style="display:none;">
+                        ${m.sources.map(src => {
+                            const isUrl = src?.metadata?.document_metadata && src.metadata.document_metadata.source_url;
+                            const domain = src?.metadata?.document_metadata?.domain;
+                            const score = typeof src?.relevance_score === 'number' ? src.relevance_score.toFixed(3) : 'N/A';
+                            if (isUrl) {
+                                const href = src.metadata.document_metadata.source_url;
+                                const label = domain || href;
+                                return `<div style=\"margin-bottom:8px;\">🌐 <a href=\"${href}\" target=\"_blank\" rel=\"noopener noreferrer\" style=\"color:#fff;text-decoration:underline;\">${label}</a> <span style=\"opacity:.8\">(Score: ${score})</span></div>`;
+                            }
+                            const fname = src?.filename || 'Unknown Document';
+                            const prev = src?.preview || '';
+                            return `<div style=\"margin-bottom:8px;\">📄 ${fname} <span style=\"opacity:.8\">(Score: ${score})</span><div style=\"opacity:.9;margin-top:4px;\">${prev}</div></div>`;
+                        }).join('')}
+                    </div>
+                ` : '';
+                return `
+                    <div class=\"message-row ${roleClass}\">
+                        <div class=\"bubble ${roleClass}\">${textHtml}${m.role === 'ai' ? sourcesHtml : ''}</div>
+                    </div>
+                `;
+            }).join('');
+            container.scrollTop = container.scrollHeight;
+        }
+
+        function toggleSources(idx) {
+            const el = document.getElementById(`sources-${idx}`);
+            if (el) el.style.display = el.style.display === 'none' ? 'block' : 'none';
+        }
+
+        function addMessage(role, text, extras = {}) {
+            chatMessages.push({ role, text, ...extras });
+            saveChatHistory();
+            renderChat();
+        }
+
+        async function sendChatMessage() {
+            const input = document.getElementById('chat-input');
+            const topKEl = document.getElementById('chat-top-k');
+            if (!input) return;
+            const query = input.value.trim();
+            const topK = parseInt(topKEl?.value || '5');
+            if (!query) return;
+
+            addMessage('user', query);
+            input.value = '';
+
+            // Typing indicator
+            addMessage('ai', 'Thinking...');
+            const typingIndex = chatMessages.length - 1;
+
+            try {
+                const response = await fetch(`${API_BASE}/api/query`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ query, top_k: topK })
+                });
+                const result = await response.json();
+                if (!response.ok) throw new Error(result.detail || 'Query failed');
+                const answer = String(result.answer || '').trim();
+                const sources = Array.isArray(result.sources) ? result.sources : [];
+                // Replace typing indicator
+                chatMessages[typingIndex] = { role: 'ai', text: answer, sources };
+                saveChatHistory();
+                renderChat();
+            } catch (error) {
+                chatMessages[typingIndex] = { role: 'ai', text: `❌ ${error.message}` };
+                saveChatHistory();
+                renderChat();
+                showModal('Query Failed', `Error: ${error.message}`, 'error');
             }
-        });
+        }
+
+        // Enter key support and input sanitation for chat input
+        const chatInputEl = document.getElementById('chat-input');
+        if (chatInputEl) {
+            chatInputEl.addEventListener('keydown', function(e) {
+                if (e.key === 'Enter') {
+                    e.preventDefault();
+                    sendChatMessage();
+                }
+            });
+            chatInputEl.addEventListener('keydown', function(e) {
+                if ((e.key === ' ' || e.code === 'Space') && this.selectionStart === 0) {
+                    e.preventDefault();
+                }
+            });
+            chatInputEl.addEventListener('input', function() {
+                const originalValue = this.value;
+                const withoutLeading = originalValue.replace(/^\s+/, '');
+                if (originalValue !== withoutLeading) {
+                    const removed = originalValue.length - withoutLeading.length;
+                    const caret = Math.max((this.selectionStart || 0) - removed, 0);
+                    this.value = withoutLeading;
+                    this.setSelectionRange(caret, caret);
+                }
+            });
+        }
+
+        function newChat() {
+            if (!confirm('Start a new chat? This will clear your chat history.')) return;
+            chatMessages = [];
+            try { localStorage.removeItem(CHAT_STORAGE_KEY); } catch (_) {}
+            renderChat();
+        }
 
         // Load initial data
         document.addEventListener('DOMContentLoaded', function() {
@@ -1501,6 +1699,9 @@
 
             // Build initial index of uploaded documents
             refreshUploadedDocsIndex();
+            // Load chat history
+            loadChatHistory();
+            renderChat();
         });
 
         // Build/update an index of uploaded documents from the server
