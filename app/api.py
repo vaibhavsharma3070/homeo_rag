@@ -19,7 +19,7 @@ from urllib.parse import urljoin, urlparse
 from app.models import (
     QueryRequest, QueryResponse, SearchRequest, SearchResponse,
     DocumentListResponse, IngestionResponse, StatsResponse, 
-    LLMTestResponse, ErrorResponse
+    LLMTestResponse, ErrorResponse, ChatSessionResponse, ChatHistoryResponse, ChatMessage
 )
 from app.rag_pipeline import RAGPipeline
 from app.document_processor import DocumentProcessor
@@ -227,13 +227,49 @@ async def get_ingest_progress(job_id: str):
 async def process_query(request: QueryRequest):
     """Process a query through the RAG pipeline."""
     try:
-        result = rag_pipeline.process_query(request.query, request.top_k)
+        # Process, passing session_id to include conversational history in context
+        result = rag_pipeline.process_query(request.query, request.top_k, session_id=request.session_id)
         print('here is the response =====', result)
+        # Persist chat messages if database available
+        try:
+            if hasattr(rag_pipeline, 'vector_store') and hasattr(rag_pipeline.vector_store, 'save_chat_message'):
+                if request.session_id:
+                    rag_pipeline.vector_store.save_chat_message(request.session_id, 'user', request.query)
+                    answer_text = str(result.get('answer', ''))
+                    rag_pipeline.vector_store.save_chat_message(request.session_id, 'ai', answer_text)
+        except Exception as persist_err:
+            logger.warning(f"Failed to save chat history: {persist_err}")
         return JSONResponse(content=result)
         
     except Exception as e:
         logger.error(f"Error processing query: {e}")
         raise HTTPException(status_code=500, detail=f"Error processing query: {str(e)}")
+
+@app.post("/api/chat/new", response_model=ChatSessionResponse, tags=["RAG"])
+async def create_chat_session():
+    """Create and return a new chat session id."""
+    try:
+        # Simple session id generator; replace with robust server-side tracking if needed
+        import uuid
+        session_id = uuid.uuid4().hex
+        return ChatSessionResponse(session_id=session_id)
+    except Exception as e:
+        logger.error(f"Error creating chat session: {e}")
+        raise HTTPException(status_code=500, detail=f"Error creating chat session: {str(e)}")
+
+@app.get("/api/chat/{session_id}", response_model=ChatHistoryResponse, tags=["RAG"])
+async def get_chat_history(session_id: str):
+    """Return stored chat history for a given session."""
+    try:
+        if hasattr(rag_pipeline, 'vector_store') and hasattr(rag_pipeline.vector_store, 'get_chat_history'):
+            rows = rag_pipeline.vector_store.get_chat_history(session_id)
+            messages = [ChatMessage(id=r.get('id'), session_id=session_id, role=r.get('role'), message=r.get('message')) for r in rows]
+            return ChatHistoryResponse(session_id=session_id, messages=messages)
+        else:
+            return ChatHistoryResponse(session_id=session_id, messages=[])
+    except Exception as e:
+        logger.error(f"Error fetching chat history: {e}")
+        raise HTTPException(status_code=500, detail=f"Error fetching chat history: {str(e)}")
 
 @app.get("/api/documents", response_model=DocumentListResponse, tags=["Documents"])
 async def list_documents():

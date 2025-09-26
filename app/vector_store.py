@@ -102,6 +102,19 @@ class PGVectorStore:
 
         self.EmbeddingData = EmbeddingData
 
+        class ChatMessageORM(Base):
+            __tablename__ = "chat_messages"
+            __table_args__ = {"extend_existing": True}
+
+            id = Column(Integer, primary_key=True, autoincrement=True)
+            session_id = Column(String(64), index=True, nullable=False)
+            role = Column(String(16), nullable=False)  # 'user' | 'ai'
+            message = Column(Text, nullable=False)
+            embedding = Column(Vector(self.dimension))
+            created_at = Column(Integer, nullable=False, default=lambda: int(time.time()))
+
+        self.ChatMessageORM = ChatMessageORM
+
     def _setup_database(self):
         """Setup database with vector extension and tables."""
         try:
@@ -114,6 +127,51 @@ class PGVectorStore:
         
         Base.metadata.create_all(self.engine)
         logger.info("Database tables created/verified")
+
+    def save_chat_message(self, session_id: str, role: str, message: str) -> Dict[str, Any]:
+        """Persist a chat message with optional embedding."""
+        if role not in ("user", "ai"):
+            role = "ai"
+        vector = None
+        try:
+            # Compute embedding if model is available
+            vector = self.embedding_model.encode([message])[0].astype(np.float32)
+        except Exception as e:
+            logger.warning(f"Failed to embed chat message: {e}")
+            vector = None
+
+        with self.SessionLocal() as db:
+            obj = self.ChatMessageORM(
+                session_id=session_id,
+                role=role,
+                message=message,
+                embedding=vector
+            )
+            db.add(obj)
+            db.commit()
+            db.refresh(obj)
+            return {
+                "id": obj.id,
+                "session_id": obj.session_id,
+                "role": obj.role,
+                "message": obj.message,
+                "created_at": obj.created_at
+            }
+
+    def get_chat_history(self, session_id: str) -> List[Dict[str, Any]]:
+        """Fetch chat messages for a session ordered by created_at ascending."""
+        with self.SessionLocal() as db:
+            rows = db.query(self.ChatMessageORM).filter_by(session_id=session_id).order_by(self.ChatMessageORM.created_at.asc(), self.ChatMessageORM.id.asc()).all()
+            return [
+                {
+                    "id": r.id,
+                    "session_id": r.session_id,
+                    "role": r.role,
+                    "message": r.message,
+                    "created_at": r.created_at
+                }
+                for r in rows
+            ]
 
     def _create_chunk_batches(self, documents: List[Dict[str, Any]]) -> List[ChunkBatch]:
         """Create batches of chunks for parallel processing."""

@@ -6,6 +6,7 @@ class QueryRequest(BaseModel):
     """Request model for query processing."""
     query: str = Field(..., min_length=1, max_length=1000, description="The question to ask")
     top_k: int = Field(default=5, ge=1, le=20, description="Number of context chunks to retrieve")
+    session_id: Optional[str] = Field(default=None, description="Client session identifier for chat continuity")
 
 class QueryResponse(BaseModel):
     """Response model for query processing."""
@@ -69,6 +70,25 @@ class LLMTestResponse(BaseModel):
     test_successful: Optional[bool] = None
     test_response: Optional[str] = None
     error: Optional[str] = None
+    timestamp: datetime = Field(default_factory=datetime.now)
+
+class ChatSessionResponse(BaseModel):
+    """Response model for creating a new chat session."""
+    session_id: str
+    timestamp: datetime = Field(default_factory=datetime.now)
+
+class ChatMessage(BaseModel):
+    """A single chat message."""
+    id: Optional[int] = None
+    session_id: str
+    role: str
+    message: str
+    created_at: datetime = Field(default_factory=datetime.now)
+
+class ChatHistoryResponse(BaseModel):
+    """Response containing chat history for a session."""
+    session_id: str
+    messages: List[ChatMessage]
     timestamp: datetime = Field(default_factory=datetime.now)
 
 class ErrorResponse(BaseModel):

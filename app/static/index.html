@@ -1610,7 +1610,9 @@
 
         // Chat state
         let chatMessages = [];
+        let chatSessionId = null;
         const CHAT_STORAGE_KEY = 'homeo_rag_chat_history';
+        const CHAT_SESSION_KEY = 'homeo_rag_chat_session_id';
 
         function loadChatHistory() {
             try {
@@ -1619,10 +1621,18 @@
             } catch (_) {
                 chatMessages = [];
             }
+            try {
+                chatSessionId = localStorage.getItem(CHAT_SESSION_KEY) || null;
+            } catch (_) {
+                chatSessionId = null;
+            }
         }
 
         function saveChatHistory() {
             try { localStorage.setItem(CHAT_STORAGE_KEY, JSON.stringify(chatMessages)); } catch (_) {}
+            try {
+                if (chatSessionId) localStorage.setItem(CHAT_SESSION_KEY, chatSessionId);
+            } catch (_) {}
         }
 
         function renderChat() {
@@ -1688,10 +1698,21 @@
             const typingIndex = chatMessages.length - 1;
 
             try {
+                // Ensure a session exists only when sending a message
+                if (!chatSessionId) {
+                    try {
+                        const sidRes = await fetch(`${API_BASE}/api/chat/new`, { method: 'POST' });
+                        const sidData = await sidRes.json();
+                        if (sidRes.ok && sidData.session_id) {
+                            chatSessionId = sidData.session_id;
+                            try { localStorage.setItem(CHAT_SESSION_KEY, chatSessionId); } catch (_) {}
+                        }
+                    } catch (_) { /* proceed without session if API fails */ }
+                }
                 const response = await fetch(`${API_BASE}/api/query`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ query, top_k: topK })
+                    body: JSON.stringify({ query, top_k: topK, session_id: chatSessionId })
                 });
                 const result = await response.json();
                 if (!response.ok) throw new Error(result.detail || 'Query failed');
@@ -1735,10 +1756,13 @@
             });
         }
 
-        function newChat() {
+        async function newChat() {
             if (!confirm('Start a new chat? This will clear your chat history.')) return;
+            // Clear local chat history and session id; do NOT create a new session yet
             chatMessages = [];
+            chatSessionId = null;
             try { localStorage.removeItem(CHAT_STORAGE_KEY); } catch (_) {}
+            try { localStorage.removeItem(CHAT_SESSION_KEY); } catch (_) {}
             const container = document.getElementById('chat-messages');
             if (container) container.innerHTML = '';
             renderChat();
@@ -1766,7 +1790,7 @@
 
             // Build initial index of uploaded documents
             refreshUploadedDocsIndex();
-            // Load chat history
+            // Load chat history and session (no auto-session creation on load)
             loadChatHistory();
             renderChat();
             // Default to chat view in new layout
