@@ -15,6 +15,7 @@ from datetime import datetime
 import requests
 from bs4 import BeautifulSoup
 from urllib.parse import urljoin, urlparse
+import re
 
 from app.models import (
     QueryRequest, QueryResponse, SearchRequest, SearchResponse,
@@ -87,7 +88,9 @@ async def serve_ui():
                 "search": "/api/search",
                 "documents": "/api/documents",
                 "stats": "/api/stats",
-                "llm-test": "/api/llm-test"
+                "llm-test": "/api/llm-test",
+                "scrape-test": "/api/scrape-test - Test web scraping functionality",
+                "weblink": "/api/weblink - Scrape and ingest web content"
             }
         }
 
@@ -284,161 +287,417 @@ async def list_documents():
         logger.error(f"Error listing documents: {e}")
         raise HTTPException(status_code=500, detail=f"Error listing documents: {str(e)}")
 
-def scrape_url(url: str, depth: int = 1, visited=None):
+def scrape_url(url: str, depth: int = 1, visited=None, use_proxy: bool = False, proxy_list: List[str] = None):
     if visited is None:
         visited = set()
     if url in visited:
         return []
     visited.add(url)
     results = []
-    
-    # Create robust session
+
+    # Create robust session with retry mechanism
     session = requests.Session()
-    
-    # Add realistic headers to avoid blocking
+
+    # Rotate between different realistic user agents
+    user_agents = [
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36 Edg/119.0.0.0',
+        'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/121.0',
+        'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.1 Safari/605.1.15'
+    ]
+
+    # Enhanced headers with more realistic browser behavior
     session.headers.update({
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8',
-        'Accept-Language': 'en-US,en;q=0.9',
+        'User-Agent': random.choice(user_agents),
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
+        'Accept-Language': 'en-US,en;q=0.9,es;q=0.8',
         'Accept-Encoding': 'gzip, deflate, br',
         'Connection': 'keep-alive',
         'Upgrade-Insecure-Requests': '1',
         'Sec-Fetch-Dest': 'document',
         'Sec-Fetch-Mode': 'navigate',
         'Sec-Fetch-Site': 'none',
+        'Sec-Fetch-User': '?1',
         'Cache-Control': 'max-age=0',
         'DNT': '1',
+        'Sec-Ch-Ua': '"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"',
+        'Sec-Ch-Ua-Mobile': '?0',
+        'Sec-Ch-Ua-Platform': '"Windows"',
     })
-    
+
+    session.max_redirects = 5
+    session.cookies.clear()
+
+    # Set a realistic referer for the domain
     try:
-        # Add delay to avoid being blocked
-        time.sleep(random.uniform(1, 3))
-        
-        res = session.get(url, timeout=15)
-        res.raise_for_status()
+        parsed_url = urlparse(url)
+        if parsed_url.netloc:
+            session.headers['Referer'] = f"https://{parsed_url.netloc}/"
+    except Exception:
+        pass
+
+    # Configure proxy if enabled
+    if use_proxy and proxy_list:
+        try:
+            proxy = random.choice(proxy_list)
+            session.proxies = {'http': proxy, 'https': proxy}
+            logger.info(f"Using proxy: {proxy}")
+        except Exception as e:
+            logger.warning(f"Failed to configure proxy: {e}")
+
+    # Retry mechanism with exponential backoff
+    max_retries = 3
+    base_delay = 2
+
+    for attempt in range(max_retries):
+        try:
+            delay = random.uniform(base_delay, base_delay + 2) + (attempt * 2)
+            time.sleep(delay)
+
+            if attempt > 0:
+                session.headers['User-Agent'] = random.choice(user_agents)
+                session.headers['Accept-Language'] = random.choice([
+                    'en-US,en;q=0.9',
+                    'en-US,en;q=0.9,es;q=0.8',
+                    'en-GB,en;q=0.9,en-US;q=0.8'
+                ])
+
+            res = session.get(url, timeout=20, allow_redirects=True)
+
+            if res.status_code == 403:
+                logger.warning(f"403 Forbidden for {url} (attempt {attempt + 1}/{max_retries})")
+                if attempt < max_retries - 1:
+                    continue
+                results.append({"url": url, "error": f"403 Forbidden after {max_retries} attempts"})
+                return results
+
+            elif res.status_code == 429:
+                logger.warning(f"Rate limited for {url} (attempt {attempt + 1}/{max_retries})")
+                if attempt < max_retries - 1:
+                    time.sleep(10 + (attempt * 5))
+                    continue
+                results.append({"url": url, "error": f"Rate limited after {max_retries} attempts"})
+                return results
+
+            elif res.status_code == 200:
+                res.raise_for_status()
+                break
+            else:
+                res.raise_for_status()
+
+        except requests.exceptions.RequestException as e:
+            logger.warning(f"Request failed for {url} (attempt {attempt + 1}/{max_retries}): {str(e)}")
+            if attempt < max_retries - 1:
+                time.sleep(base_delay * (2 ** attempt))
+                continue
+            results.append({"url": url, "error": f"Request failed after {max_retries} attempts: {str(e)}"})
+            return results
+
+    # If we get here, request was successful
+    try:
         soup = BeautifulSoup(res.text, "html.parser")
-        
-        # Remove unwanted elements
-        for unwanted in soup(["script", "style", "nav", "header", "footer", "aside", 
-                            "advertisement", "ads", "social-share", "cookie-banner", 
-                            "noscript", "iframe", "form"]):
+
+        for unwanted in soup(["script", "style", "noscript"]):
             unwanted.decompose()
-        
-        # Extract headings
-        headings = []
+
+        for unwanted in soup(["nav", "header", "footer", "aside", "advertisement", "ads",
+                              "social-share", "cookie-banner", "iframe"]):
+            text_content = unwanted.get_text(strip=True)
+            if text_content and len(text_content) > 20:
+                temp_div = soup.new_tag("div", **{"class": "extracted-ui-text", "data-source": unwanted.name})
+                temp_div.string = f"UI_ELEMENT_{unwanted.name.upper()}: {text_content}"
+                soup.append(temp_div)
+            unwanted.decompose()
+
+        # Extract different elements
+        headings, heading_hierarchy, paragraphs, div_content = [], [], [], []
+        semantic_content, list_content, table_content = [], [], []
+        form_content, span_content, code_content = [], [], []
+        other_content, data_content, meta_content, selector_content = [], [], [], []
+        remaining_text = []
+
+        # Headings
         for h in soup.find_all(["h1", "h2", "h3", "h4", "h5", "h6"]):
             heading_text = h.get_text(strip=True)
-            if heading_text and len(heading_text) > 3:
+            if heading_text and len(heading_text) > 2:
                 headings.append(heading_text)
-        
-        # Extract paragraphs with better filtering
-        paragraphs = []
+                level = int(h.name[1])
+                heading_hierarchy.append(f"{'  ' * (level-1)}• {heading_text}")
+
+        # Paragraphs
         for p in soup.find_all("p"):
             para_text = p.get_text(strip=True)
-            if para_text and len(para_text) > 20:  # Filter out very short paragraphs
+            if para_text and len(para_text) > 10:
                 paragraphs.append(para_text)
-        
-        # Also extract content from main, article, section tags
-        main_content = []
-        for tag in soup.find_all(["main", "article", "section", "div"]):
-            if tag.get("class"):
-                class_names = " ".join(tag.get("class", []))
-                if any(keyword in class_names.lower() for keyword in ["content", "article", "main", "body", "text", "post", "entry"]):
-                    content_text = tag.get_text(strip=True)
-                    if content_text and len(content_text) > 50:
-                        main_content.append(content_text)
-        
-        # Extract from lists that might contain useful information
-        list_content = []
-        for ul in soup.find_all(["ul", "ol"]):
-            list_text = ul.get_text(strip=True)
-            if list_text and len(list_text) > 30:
+
+        # Divs
+        for div in soup.find_all("div"):
+            div_class = " ".join(div.get("class", [])).lower()
+            div_id = div.get("id", "").lower()
+            if any(skip_word in div_class or skip_word in div_id for skip_word in
+                   ["nav", "menu", "sidebar", "ad", "advertisement", "banner", "footer",
+                    "header", "social", "share", "comment", "cookie", "popup", "modal"]):
+                continue
+            div_text = div.get_text(strip=True)
+            if div_text and len(div_text) > 20:
+                div_content.append(div_text)
+
+        # Semantic
+        for tag in soup.find_all(["main", "article", "section", "aside", "details", "summary",
+                                  "blockquote", "cite", "q", "mark", "ins", "del", "s", "u"]):
+            content_text = tag.get_text(strip=True)
+            if content_text and len(content_text) > 15:
+                semantic_content.append(content_text)
+
+        # Lists
+        for list_tag in soup.find_all(["ul", "ol", "dl"]):
+            list_text = list_tag.get_text(strip=True)
+            if list_text and len(list_text) > 20:
                 list_content.append(list_text)
-        
-        # Combine all text
-        all_text = " ".join(paragraphs + main_content + list_content)
-        
-        # Clean the text
-        import re
-        all_text = re.sub(r'\s+', ' ', all_text)  # Remove excessive whitespace
-        all_text = re.sub(r'Cookie Policy|Privacy Policy|Terms of Service|Subscribe|Newsletter', '', all_text, flags=re.IGNORECASE)
-        
-        # Remove Wikipedia navigation artifacts
-        all_text = re.sub(r'From Wikipedia, the free encyclopedia|Jump to navigation|Jump to search', '', all_text, flags=re.IGNORECASE)
-        
-        # Only add if we have substantial content
-        if all_text.strip() and len(all_text.strip()) > 100:
+
+        # Tables
+        for table in soup.find_all("table"):
+            table_text = table.get_text(strip=True)
+            if table_text and len(table_text) > 30:
+                table_content.append(table_text)
+
+        # Forms
+        for form in soup.find_all("form"):
+            form_text = form.get_text(strip=True)
+            if form_text and len(form_text) > 20:
+                form_content.append(form_text)
+
+        # Spans
+        for span in soup.find_all("span"):
+            span_text = span.get_text(strip=True)
+            if span_text and len(span_text) > 10:
+                span_content.append(span_text)
+
+        # Code blocks
+        for code_tag in soup.find_all(["pre", "code", "kbd", "samp", "var"]):
+            code_text = code_tag.get_text(strip=True)
+            if code_text and len(code_text) > 10:
+                code_content.append(code_text)
+
+        # Other text
+        for tag in soup.find_all(["strong", "b", "em", "i", "small", "sub", "sup",
+                                  "abbr", "acronym", "address", "bdo", "big", "tt"]):
+            tag_text = tag.get_text(strip=True)
+            if tag_text and len(tag_text) > 5:
+                other_content.append(tag_text)
+
+        # Data attributes
+        for element in soup.find_all(attrs={"data-content": True}):
+            data_text = element.get("data-content", "").strip()
+            if data_text and len(data_text) > 10:
+                data_content.append(data_text)
+
+        # Title + meta
+        title = soup.find('title')
+        if title and title.get_text(strip=True):
+            meta_content.append(f"Page Title: {title.get_text(strip=True)}")
+
+        for meta in soup.find_all('meta', attrs={'name': ['description', 'keywords', 'author', 'subject']}):
+            content = meta.get('content', '').strip()
+            if content:
+                meta_content.append(f"{meta.get('name', 'meta')}: {content}")
+
+        # Content selectors
+        content_selectors = [
+            '.content', '.main-content', '.article-content', '.post-content',
+            '.entry-content', '.page-content', '.text-content', '.body-content',
+            '.content-body', '.main-body', '.article-body', '.post-body',
+            '.content-area', '.main-area', '.primary-content', '.secondary-content',
+            '[role="main"]', '[role="article"]', '[role="contentinfo"]',
+            '.container', '.wrapper', '.inner', '.content-wrapper'
+        ]
+        for selector in content_selectors:
+            try:
+                elements = soup.select(selector)
+                for element in elements:
+                    text = element.get_text(strip=True)
+                    if text and len(text) > 20:
+                        selector_content.append(f"SELECTOR_{selector}: {text}")
+            except Exception:
+                continue
+
+        # Remaining text
+        for element in soup.find_all(text=True):
+            if element.parent and element.parent.name not in ['script', 'style', 'noscript']:
+                text = element.strip()
+                if text and len(text) > 5:
+                    remaining_text.append(text)
+
+        # Organize by priority
+        high_priority_content = [
+            ("Headings", headings),
+            ("Paragraphs", paragraphs),
+            ("Semantic Content", semantic_content),
+            ("Table Content", table_content),
+            ("Content Selectors", selector_content)
+        ]
+        medium_priority_content = [
+            ("List Content", list_content),
+            ("Code Content", code_content),
+            ("Meta Information", meta_content),
+            ("Data Attributes", data_content)
+        ]
+        low_priority_content = [
+            ("Div Content", div_content),
+            ("Form Content", form_content),
+            ("Span Content", span_content),
+            ("Other Text Elements", other_content),
+            ("Remaining Text", remaining_text)
+        ]
+
+        all_text_parts = []
+        for priority_section, content_groups in [
+            ("HIGH PRIORITY CONTENT", high_priority_content),
+            ("MEDIUM PRIORITY CONTENT", medium_priority_content),
+            ("LOW PRIORITY CONTENT", low_priority_content)
+        ]:
+            all_text_parts.append(f"\n{'='*20} {priority_section} {'='*20}")
+            for content_name, content_list in content_groups:
+                if content_list:
+                    all_text_parts.append(f"\n--- {content_name.upper()} ---")
+                    all_text_parts.extend(content_list)
+
+        all_text = "\n".join(all_text_parts)
+
+        # Cleanup
+        all_text = re.sub(r'\n\s*\n', '\n\n', all_text)
+        all_text = re.sub(r'[ \t]+', ' ', all_text)
+        for pattern in [
+            r'Cookie Policy|Privacy Policy|Terms of Service|Subscribe|Newsletter|Sign up|Login|Register',
+            r'From Wikipedia, the free encyclopedia|Jump to navigation|Jump to search',
+            r'Skip to main content|Skip to navigation|Skip to search',
+            r'Home|About|Contact|Support|Help|FAQ',
+            r'Follow us|Share|Like|Tweet|Share on|Follow on',
+            r'Advertisement|Ad|Sponsored|Promoted',
+            r'© \d{4}|All rights reserved|Copyright',
+            r'Last updated|Last modified|Published on|Posted on',
+            r'Read more|Continue reading|Show more|View more',
+            r'Loading|Please wait|Error|Warning|Notice',
+            r'JavaScript is required|Enable JavaScript|Update your browser',
+            r'This site uses cookies|Accept cookies|Cookie settings'
+        ]:
+            all_text = re.sub(pattern, '', all_text, flags=re.IGNORECASE)
+
+        all_text = re.sub(r'\n{3,}', '\n\n', all_text).strip()
+
+        if all_text and len(all_text) > 50:
             results.append({
                 "url": url,
                 "headings": headings,
-                "text": all_text.strip()
+                "text": all_text
             })
-            logger.info(f"Successfully scraped {url}: {len(all_text)} characters, {len(headings)} headings")
+            logger.info(f"Successfully scraped {url}: {len(all_text)} chars, {len(headings)} headings")
         else:
-            logger.warning(f"Insufficient content scraped from {url}: only {len(all_text.strip())} characters")
-        
-        # Depth handling - follow links (only for same domain)
+            logger.warning(f"Insufficient content scraped from {url}")
+
+        # Depth handling
         if depth > 1:
             base_domain = urlparse(url).netloc
             links = soup.find_all("a", href=True)
             followed_links = 0
-            
             for a in links:
-                if followed_links >= 5:  # Limit to first 5 links to avoid infinite recursion
+                if followed_links >= 5:
                     break
-                    
                 child_url = urljoin(url, a["href"])
-                
-                # Only follow links from same domain and avoid certain file types
-                if (child_url.startswith("http") and 
-                    urlparse(child_url).netloc == base_domain and
-                    not any(child_url.lower().endswith(ext) for ext in ['.pdf', '.jpg', '.png', '.gif', '.css', '.js', '.xml', '.json'])):
-                    
+                if (child_url.startswith("http") and
+                        urlparse(child_url).netloc == base_domain and
+                        not any(child_url.lower().endswith(ext) for ext in
+                                ['.pdf', '.jpg', '.png', '.gif', '.css', '.js', '.xml', '.json'])):
                     try:
-                        child_results = scrape_url(child_url, depth-1, visited)
+                        child_results = scrape_url(child_url, depth - 1, visited)
                         results.extend(child_results)
                         followed_links += 1
                     except Exception as e:
                         logger.warning(f"Failed to scrape child URL {child_url}: {e}")
                         continue
-                    
-    except requests.exceptions.RequestException as e:
-        logger.error(f"Request failed for {url}: {str(e)}")
-        results.append({"url": url, "error": f"Request failed: {str(e)}"})
+
     except Exception as e:
         logger.error(f"Error scraping {url}: {str(e)}")
         results.append({"url": url, "error": str(e)})
     finally:
         session.close()
-    
+
     return results
+
 
 @app.post("/api/weblink", tags=["Weblink"])
 async def weblink_endpoint(request: Dict[str, Any]):
     """
     Schedule weblink scraping and ingestion as a background Celery task.
     Returns a job_id to poll with any Celery-aware progress endpoint.
+    
+    Optional parameters:
+    - use_proxy: bool - Enable proxy usage for scraping
+    - proxy_list: List[str] - List of proxy URLs to use
     """
     try:
         url = request.get("query")
         depth = int(request.get("depth", 1))
         max_workers = int(request.get("max_workers", 4))
         batch_size = int(request.get("batch_size", 100))
+        use_proxy = request.get("use_proxy", False)
+        proxy_list = request.get("proxy_list", [])
 
         if not url:
             raise HTTPException(status_code=400, detail="No URL provided")
 
         task = celery_app.send_task(
             "app.tasks.weblink_ingestion_task",
-            args=[url, depth, max_workers, batch_size]
+            args=[url, depth, max_workers, batch_size, use_proxy, proxy_list]
         )
-        return {"job_id": task.id, "status": "queued"}
+        return {"job_id": task.id, "status": "queued", "use_proxy": use_proxy}
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"Error scheduling weblink async ingestion: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+
+@app.get("/api/scrape-test", tags=["System"])
+async def test_scraping(url: str = "https://httpbin.org/user-agent", use_proxy: bool = False):
+    """Test web scraping functionality with a simple URL."""
+    try:
+        result = scrape_url(url, depth=1, use_proxy=use_proxy)
+        
+        if result and len(result) > 0:
+            if 'error' in result[0]:
+                return {
+                    "success": False,
+                    "error": result[0]['error'],
+                    "url": url,
+                    "use_proxy": use_proxy
+                }
+            else:
+                return {
+                    "success": True,
+                    "url": url,
+                    "content_length": len(result[0].get('text', '')),
+                    "headings_count": len(result[0].get('headings', [])),
+                    "use_proxy": use_proxy,
+                    "preview": result[0].get('text', '')[:200] + "..." if len(result[0].get('text', '')) > 200 else result[0].get('text', '')
+                }
+        else:
+            return {
+                "success": False,
+                "error": "No content scraped",
+                "url": url,
+                "use_proxy": use_proxy
+            }
+            
+    except Exception as e:
+        logger.error(f"Error testing scraping: {e}")
+        return {
+            "success": False,
+            "error": str(e),
+            "url": url,
+            "use_proxy": use_proxy
+        }
 
 @app.get("/api/llm-test", response_model=LLMTestResponse, tags=["System"])
 async def test_llm():

@@ -4,6 +4,7 @@ from celery import shared_task, current_task
 from loguru import logger
 from pathlib import Path
 import time
+import re
 
 from app.rag_pipeline import RAGPipeline
 from app.document_processor import DocumentProcessor
@@ -79,7 +80,7 @@ def ingest_documents_task(self, file_paths: List[str], max_workers: int = 4, bat
 
 
 @shared_task(bind=True, name="app.tasks.weblink_ingestion_task")
-def weblink_ingestion_task(self, url: str, depth: int = 1, max_workers: int = 4, batch_size: int = 100) -> Dict[str, Any]:
+def weblink_ingestion_task(self, url: str, depth: int = 1, max_workers: int = 4, batch_size: int = 100, use_proxy: bool = False, proxy_list: List[str] = None) -> Dict[str, Any]:
     """Scrape a URL (optionally following internal links), process content, and index in background."""
     try:
         from app.api import scrape_url  # reuse existing scraper
@@ -93,7 +94,11 @@ def weblink_ingestion_task(self, url: str, depth: int = 1, max_workers: int = 4,
             'progress': 5
         })
 
-        scraped_data = scrape_url(url, depth)
+        # Handle proxy_list properly - ensure it's a list or None
+        if proxy_list is None:
+            proxy_list = []
+        
+        scraped_data = scrape_url(url, depth, use_proxy=use_proxy, proxy_list=proxy_list)
         total_items = len(scraped_data)
 
         if total_items == 0:
