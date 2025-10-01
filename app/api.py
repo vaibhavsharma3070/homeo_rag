@@ -181,31 +181,40 @@ async def ingest_documents_async(
     max_workers: int = Form(default=4),
     batch_size: int = Form(default=100)
 ):
+    logger.debug(f"Received ingestion request: {len(files)} file(s), max_workers={max_workers}, batch_size={batch_size}")
     try:
         if not files:
+            logger.warning("No files provided in the request")
             raise HTTPException(status_code=400, detail="No files provided")
 
         saved_paths = []
         for file in files:
+            logger.debug(f"Processing file: {file.filename}")
             if not file.filename.lower().endswith('.pdf'):
+                logger.error(f"File rejected (not PDF): {file.filename}")
                 raise HTTPException(status_code=400, detail=f"File {file.filename} is not a PDF")
+
             dest = Path(settings.upload_dir) / file.filename
+            dest.parent.mkdir(parents=True, exist_ok=True)  # ensure directory exists
             with open(dest, "wb") as buffer:
                 shutil.copyfileobj(file.file, buffer)
             saved_paths.append(str(dest))
+            logger.debug(f"Saved file to: {dest}")
 
-        # Enqueue celery job
+        logger.debug(f"Enqueuing Celery task for {len(saved_paths)} file(s)")
         task = celery_app.send_task(
             "app.tasks.ingest_documents_task",
             args=[saved_paths, max_workers, batch_size]
         )
+
+        logger.info(f"Task queued successfully with job_id={task.id}")
         return {"job_id": task.id, "status": "queued"}
+
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error scheduling async ingestion: {e}")
+        logger.exception("Error scheduling async ingestion")
         raise HTTPException(status_code=500, detail=str(e))
-
 
 @app.get("/api/ingest/progress/{job_id}", tags=["Documents"])
 async def get_ingest_progress(job_id: str):
