@@ -173,7 +173,7 @@
         .chat-wrapper {
             display: flex;
             flex-direction: column;
-            height: 70vh;
+            height: 78vh;
             background: #0d0d0d;
             border: 1px solid #2a2a2a;
             border-radius: 12px;
@@ -314,6 +314,24 @@
             justify-content: space-between;
             align-items: center;
         }
+        .delete-doc-btn {
+            background: transparent;
+            border: none;
+            cursor: pointer;
+            font-size: 0.9rem;
+            line-height: 1;
+            color: #e53e3e;
+            padding: 6px 8px;
+            border-radius: 6px;
+            transition: color 0.2s ease, background 0.2s ease, transform 0.1s ease;
+            font-weight: 600;
+        }
+        .delete-doc-btn:hover {
+            color: #c53030;
+            background: #fff5f5;
+            transform: translateY(-1px);
+        }
+        .delete-doc-btn[disabled] { opacity: .6; cursor: not-allowed; transform: none; }
         .status-indicator {
             padding: 4px 8px;
             border-radius: 12px;
@@ -382,10 +400,13 @@
             justify-content: space-between;
             align-items: center;
             padding: 10px;
-            background: #f8fafc;
+            background: #1f1f1f;
+            color: #e5e7eb;
+            border: 1px solid #2a2a2a;
             border-radius: 6px;
             margin-bottom: 8px;
         }
+        .file-item span { color: #e5e7eb; }
         .file-item-right {
             display: flex;
             align-items: center;
@@ -636,6 +657,26 @@
     </style>
 </head>
 <body>
+    <style>
+        /* Fullscreen chat mode */
+        body.chat-fullscreen { overflow: hidden; }
+        body.chat-fullscreen .sidebar { display: none; }
+        body.chat-fullscreen .container { margin: 0; padding: 0; height: 100vh; }
+        body.chat-fullscreen .chat-wrapper { height: 95vh; border-radius: 0; }
+
+        /* Fancy button subtle shimmer */
+        .btn { position: relative; overflow: hidden; }
+        .btn::after {
+            content: "";
+            position: absolute;
+            top: 0; left: -120%;
+            width: 120%; height: 100%;
+            background: linear-gradient(120deg, transparent, rgba(255,255,255,0.15), transparent);
+            transform: skewX(-20deg);
+            transition: left .6s ease;
+        }
+        .btn:hover::after { left: 120%; }
+    </style>
     <!-- Custom Modal -->
     <div class="modal-overlay" id="customModal">
         <div class="modal-content">
@@ -656,8 +697,8 @@
     <div class="sidebar">
         <div class="sidebar-header">
             <div class="brand">🌿 Homeopathy RAG</div>
-            <button class="icon-btn" title="Collapse sidebar" onclick="toggleSidebar()" aria-label="Collapse sidebar">
-                <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <button class="icon-btn" id="sidebar-toggle-btn" title="Collapse sidebar" onclick="toggleSidebar()" aria-label="Collapse sidebar">
+                <svg id="sidebar-toggle-icon" class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                     <polyline points="15 18 9 12 15 6"></polyline>
                 </svg>
             </button>
@@ -722,6 +763,15 @@
             <div class="chat-wrapper">
                 <div class="chat-header">
                     <span>💬 Chat</span>
+                    <div style="display:flex; gap:8px; align-items:center;">
+                        <button class="icon-btn" id="chat-fullscreen-btn" title="Enter fullscreen" onclick="toggleChatFullscreen()" aria-label="Toggle chat fullscreen">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <polyline points="4 9 4 4 9 4"></polyline>
+                                <polyline points="15 4 20 4 20 9"></polyline>
+                                <polyline points="20 15 20 20 15 20"></polyline>
+                                <polyline points="9 20 4 20 4 15"></polyline>
+                            </svg>
+                        </button>
                     <button class="icon-btn" id="new-chat-btn" title="New Chat" onclick="newChat()" aria-label="New Chat">
                         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                             <circle cx="12" cy="12" r="10"></circle>
@@ -729,6 +779,7 @@
                             <line x1="8" y1="12" x2="16" y2="12"></line>
                         </svg>
                     </button>
+                    </div>
                 </div>
                 <div class="chat-messages" id="chat-messages"></div>
                 <div class="chat-input-bar">
@@ -890,6 +941,18 @@
 
         function toggleSidebar() {
             document.body.classList.toggle('sidebar-collapsed');
+            // Update toggle icon direction
+            try {
+                const icon = document.getElementById('sidebar-toggle-icon');
+                if (!icon) return;
+                if (document.body.classList.contains('sidebar-collapsed')) {
+                    // Show '>' direction (pointing right)
+                    icon.innerHTML = '<polyline points="9 18 15 12 9 6"></polyline>';
+                } else {
+                    // Show '<' direction (pointing left)
+                    icon.innerHTML = '<polyline points="15 18 9 12 15 6"></polyline>';
+                }
+            } catch (_) {}
         }
 
         // File upload handling
@@ -1120,6 +1183,24 @@
             if (index < 0 || index >= selectedFiles.length) return;
             const updated = selectedFiles.slice(0, index).concat(selectedFiles.slice(index + 1));
             updateSelectedFiles(updated);
+        }
+
+        // Chat fullscreen toggle
+        function toggleChatFullscreen() {
+            const isFs = document.body.classList.toggle('chat-fullscreen');
+            const btn = document.getElementById('chat-fullscreen-btn');
+            if (btn) {
+                btn.title = isFs ? 'Exit fullscreen' : 'Enter fullscreen';
+                btn.setAttribute('aria-label', btn.title);
+                // Swap icon between expand (default) and collapse (when fullscreen)
+                const collapseSvg = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">\
+<polyline points="9 9 4 9 4 4"></polyline><polyline points="15 9 20 9 20 4"></polyline><polyline points="15 15 20 15 20 20"></polyline><polyline points="9 15 4 15 4 20"></polyline>\
+</svg>';
+                const expandSvg = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">\
+<polyline points="4 9 4 4 9 4"></polyline><polyline points="15 4 20 4 20 9"></polyline><polyline points="20 15 20 20 15 20"></polyline><polyline points="9 20 4 20 4 15"></polyline>\
+</svg>';
+                btn.innerHTML = isFs ? collapseSvg : expandSvg;
+            }
         }
 
         async function submitQuery() {
@@ -1482,6 +1563,30 @@
             }
         }
 
+        // Delete a single document by id
+        async function deleteDocument(docId) {
+            if (!docId && docId !== 0) return;
+            if (!confirm('Delete this document? This will remove it from the database.')) return;
+            // Disable the clicked button to prevent duplicates
+            try {
+                const btns = Array.from(document.querySelectorAll('.delete-doc-btn'));
+                btns.forEach(b => b.disabled = true);
+                const res = await fetch(`${API_BASE}/api/documents/${docId}`, { method: 'DELETE' });
+                const data = await res.json().catch(() => ({}));
+                if (!res.ok) {
+                    throw new Error(data.detail || 'Deletion endpoint not available');
+                }
+                await refreshUploadedDocsIndex();
+                await loadDocuments();
+                showModal('Document Deleted', 'The document was removed successfully.', 'success');
+            } catch (e) {
+                showModal('Delete Failed', e.message || 'Unable to delete document.', 'error');
+            } finally {
+                const btns = Array.from(document.querySelectorAll('.delete-doc-btn'));
+                btns.forEach(b => b.disabled = false);
+            }
+        }
+
         async function loadStats() {
             const statsGrid = document.getElementById('stats-grid');
             statsGrid.innerHTML = '<div class="loading"><div class="spinner"></div>Loading statistics...</div>';
@@ -1491,6 +1596,15 @@
                 const result = await response.json();
                 
                 if (response.ok) {
+                    // Derive total URLs from documents endpoint
+                    let totalUrls = 0;
+                    try {
+                        const docsRes = await fetch(`${API_BASE}/api/documents`);
+                        const docs = await docsRes.json();
+                        if (docsRes.ok && Array.isArray(docs.documents)) {
+                            totalUrls = docs.documents.reduce((acc, d) => acc + ((d?.metadata && d.metadata.source_url) ? 1 : 0), 0);
+                        }
+                    } catch (_) {}
                     statsGrid.innerHTML = `
                         <div class="stat-card">
                             <span class="stat-number">${result.total_documents}</span>
@@ -1501,8 +1615,8 @@
                             <div class="stat-label">🧩 Total Chunks</div>
                         </div>
                         <div class="stat-card">
-                            <span class="stat-number">${result.embedding_dimension}</span>
-                            <div class="stat-label">🔗 Total Embeddings</div>
+                            <span class="stat-number">${totalUrls}</span>
+                            <div class="stat-label">🌐 Total URLs</div>
                         </div>
                         <div class="stat-card">
                             <span class="stat-number">${(result.index_size || 0).toFixed(1)} MB</span>
@@ -1547,6 +1661,13 @@
                         `Successfully connected to ${result.provider}. Model: ${result.model || 'Unknown'}`, 
                         'success'
                     );
+                    // Auto-hide success after 5 seconds
+                    setTimeout(() => {
+                        try {
+                            responseArea.style.display = 'none';
+                            responseArea.innerHTML = '';
+                        } catch (_) {}
+                    }, 5000);
                 } else {
                     responseArea.innerHTML = `
                         <div style="color: #742a2a; background: #fed7d7; padding: 15px; border-radius: 8px;">
@@ -1718,16 +1839,48 @@
                 if (!response.ok) throw new Error(result.detail || 'Query failed');
                 const answer = String(result.answer || '').trim();
                 const sources = (result.metadata && result.metadata.bypass === 'small_talk') ? [] : (Array.isArray(result.sources) ? result.sources : []);
-                // Replace typing indicator
-                chatMessages[typingIndex] = { role: 'ai', text: answer, sources };
-                saveChatHistory();
-                renderChat();
+                // Replace typing indicator with streaming typewriter effect
+                startTypewriterRender(typingIndex, answer, sources);
             } catch (error) {
                 chatMessages[typingIndex] = { role: 'ai', text: `❌ ${error.message}` };
                 saveChatHistory();
                 renderChat();
                 showModal('Query Failed', `Error: ${error.message}`, 'error');
             }
+        }
+
+        // Fast typewriter rendering after full answer is received
+        function startTypewriterRender(typingIndex, fullText, sources) {
+            // Initialize the AI message replacing the typing indicator
+            chatMessages[typingIndex] = { role: 'ai', text: '', sources };
+            saveChatHistory();
+            renderChat();
+
+            const targetIndex = typingIndex;
+            const stepChars = 8; // speed: characters per frame batch
+            const minInterval = 12; // ms per batch for fast output
+            let pos = 0;
+
+            function tick() {
+                if (pos >= fullText.length) {
+                    // Ensure final text is set
+                    chatMessages[targetIndex].text = fullText;
+                    saveChatHistory();
+                    renderChat();
+                    return;
+                }
+                const next = fullText.slice(pos, pos + stepChars);
+                chatMessages[targetIndex].text += next;
+                pos += stepChars;
+                // Render occasionally for performance
+                saveChatHistory();
+                renderChat();
+                // Keep scroll pinned to bottom
+                const container = document.getElementById('chat-messages');
+                if (container) container.scrollTop = container.scrollHeight;
+                setTimeout(tick, minInterval);
+            }
+            tick();
         }
 
         // Enter key support and input sanitation for chat input
@@ -1770,6 +1923,11 @@
 
         // Load initial data
         document.addEventListener('DOMContentLoaded', function() {
+            // Always start with a blank chat on load (device-local)
+            try { localStorage.removeItem(CHAT_STORAGE_KEY); } catch (_) {}
+            try { localStorage.removeItem(CHAT_SESSION_KEY); } catch (_) {}
+            chatMessages = [];
+            chatSessionId = null;
             // Check API health
             fetch(`${API_BASE}/health`)
                 .then(response => response.json())
@@ -1790,8 +1948,7 @@
 
             // Build initial index of uploaded documents
             refreshUploadedDocsIndex();
-            // Load chat history and session (no auto-session creation on load)
-            loadChatHistory();
+            // Do not load previous chat: start blank per requirements
             renderChat();
             // Default to chat view in new layout
             navigate('query', document.querySelector('.nav-item[data-section="query"]'));

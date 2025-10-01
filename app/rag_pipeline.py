@@ -7,417 +7,288 @@ import re
 
 
 class RAGPipeline:
-    """RAG pipeline optimized for LangChain similarity search."""
+    """RAG pipeline with proper conversation context handling."""
 
     def __init__(self):
         if settings.vector_backend.lower() == 'pgvector':
             self.vector_store = PGVectorStore()
         self.llm_connector: GeminiConnector = LLMFactory.create_connector()
-        self._small_talk_clf = None  # lazy-init zero-shot classifier
+        self._small_talk_clf = None
 
     def _resolve_pronoun_query(self, query: str, history_text: str) -> str:
-        """
-        Resolve pronouns in follow-up queries using conversation history.
-        Returns the resolved query or original if no pronoun detected.
-        """
+        """Resolve pronouns using conversation history."""
         query_lower = query.lower().strip()
         
-        # Check if query contains pronouns or follow-up indicators
-        follow_up_patterns = [
-            r'\b(him|her|it|them|his|hers|its|their|that|this|these|those)\b',
-            r'\bmore (info|information|details|about)\b',
-            r'\btell me more\b',
-            r'\b(what|how) about (him|her|it|them|that|this)\b'
-        ]
+        # Detect pronouns and referential words
+        pronoun_pattern = r'\b(he|she|him|her|his|hers|it|its|they|them|their|that|this|those|these)\b'
         
-        has_pronoun = any(re.search(pattern, query_lower) for pattern in follow_up_patterns)
-        
-        if not has_pronoun or not history_text:
+        if not re.search(pronoun_pattern, query_lower) or not history_text:
             return query
         
-        # Extract the last topic from history
         try:
-            # Look for the last substantial AI response
+            # Extract the main subject from the most recent USER question
             lines = history_text.strip().split('\n')
-            last_topic = None
-            
             for line in reversed(lines):
                 if line.startswith('USER:'):
-                    user_msg = line.replace('USER:', '').strip()
-                    # Extract subject from user question
-                    words = user_msg.lower().split()
-                    # Skip common words to find the subject
-                    skip_words = {'what', 'who', 'where', 'when', 'why', 'how', 'is', 'are', 'do', 'does', 'you', 'mean', 'by', 'the', 'a', 'an'}
-                    topic_words = [w.strip('?,.:;!') for w in words if w.lower() not in skip_words and len(w) > 2]
-                    if topic_words:
-                        last_topic = ' '.join(topic_words[:3])  # Take first few meaningful words
-                        break
-            
-            if last_topic:
-                # Create resolved query
-                resolved = query_lower
-                resolved = re.sub(r'\b(him|her|it|them|that|this)\b', last_topic, resolved)
-                resolved = re.sub(r'\bmore (info|information|details) about\b', f'{last_topic}', resolved)
-                logger.info(f"Resolved pronoun query: '{query}' -> '{resolved}'")
-                return resolved
-                
+                    user_msg = line.replace('USER:', '').strip().lower()
+                    
+                    # Extract subject using simple heuristics
+                    # Look for "who is X" pattern
+                    who_match = re.search(r'who\s+is\s+(?:the\s+)?(.+?)(?:\?|$)', user_msg)
+                    if who_match:
+                        subject = who_match.group(1).strip()
+                        resolved = re.sub(pronoun_pattern, subject, query_lower)
+                        logger.info(f"Resolved: '{query}' -> '{resolved}'")
+                        return resolved
+                    
+                    # Fallback: take meaningful words after common question words
+                    words = user_msg.split()
+                    skip = {'who', 'what', 'where', 'when', 'is', 'are', 'the', 'a', 'an', 'current'}
+                    subject_words = [w.strip('?,.:;!') for w in words if w not in skip and len(w) > 2]
+                    
+                    if subject_words:
+                        subject = ' '.join(subject_words[:3])
+                        resolved = re.sub(pronoun_pattern, subject, query_lower)
+                        logger.info(f"Resolved: '{query}' -> '{resolved}'")
+                        return resolved
+                    break
+                    
         except Exception as e:
-            logger.warning(f"Failed to resolve pronoun: {e}")
+            logger.warning(f"Pronoun resolution failed: {e}")
         
         return query
 
     def process_query(
         self, 
         query: str, 
-        top_k: int = 8, 
+        top_k: int = 5, 
         min_score: float = 0.2, 
         session_id: Optional[str] = None, 
-        history_turns: int = 6
+        history_turns: int = 4
     ) -> Dict[str, Any]:
         """
-        Process query with LangChain similarity search.
+        Process query with context-aware search.
         
         Flow:
-        1. Check for small talk/greetings
-        2. Load chat history
-        3. Resolve pronouns in follow-up queries
-        4. Search vector store using resolved query
-        5. Filter by score
-        6. Generate contextual response
+        1. Detect small talk -> bypass KB search
+        2. Load chat history FIRST
+        3. Resolve pronouns using history
+        4. Search KB with resolved query
+        5. Generate response with full context
         """
         try:
             logger.info(f"Processing query: '{query}'")
 
-            # Small talk / greeting bypass: do not search KB or show sources
+            # Handle small talk without KB search
             if self._is_small_talk(query):
-                logger.info("Detected small talk/greeting. Bypassing KB search and sources.")
+                logger.info("Small talk detected - bypassing KB")
                 answer = self._generate_small_talk_response(query)
-                return {
-                    'query': query,
-                    'answer': answer,
-                    'context_used': [],
-                    'sources': [],
-                    'confidence': 'high',
-                    'metadata': {
-                        'total_sources': 0,
-                        'avg_relevance_score': 0.0,
-                        'llm_provider': self.llm_connector.__class__.__name__,
-                        'bypass': 'small_talk'
-                    }
-                }
+                return self._create_response(query, answer, [], [], 'high', {'bypass': 'small_talk'})
             
-            # Load recent chat history FIRST (before search)
+            # LOAD HISTORY FIRST
             history_text = ""
-            history_messages_count = 0
             if session_id and hasattr(self.vector_store, 'get_chat_history'):
                 try:
                     rows = self.vector_store.get_chat_history(session_id)
-                    tail = rows[-history_turns:]
-                    formatted = []
-                    for r in tail:
-                        role = r.get('role', 'user')
-                        msg = r.get('message', '')
-                        if not isinstance(msg, str):
-                            msg = str(msg)
-                        formatted.append(f"{role.upper()}: {msg.strip()}")
-                    history_text = "\n".join(formatted)
-                    history_messages_count = len(tail)
-                    logger.info(f"Loaded {history_messages_count} chat history messages")
+                    recent = rows[-history_turns:] if len(rows) > history_turns else rows
+                    history_text = "\n".join([f"{r['role'].upper()}: {r['message']}" for r in recent])
+                    logger.info(f"Loaded {len(recent)} history messages")
                 except Exception as e:
-                    logger.warning(f"Failed to load chat history for session {session_id}: {e}")
+                    logger.warning(f"Failed to load history: {e}")
             
-            # Resolve pronouns in query using history
+            # Resolve pronouns AFTER loading history
             resolved_query = self._resolve_pronoun_query(query, history_text)
             
-            # Search using resolved query
+            # Search with resolved query
             search_results = self.vector_store.search(resolved_query, top_k=top_k)
-            logger.info(f"LangChain search retrieved {len(search_results)} results for resolved query")
+            logger.info(f"Search returned {len(search_results)} results")
 
-            # Filter by minimum score
-            filtered_results = [r for r in search_results if r['score'] >= min_score]
-            logger.info(f"After filtering (min_score={min_score}): {len(filtered_results)} results remain")
+            # Filter by score
+            filtered = [r for r in search_results if r['score'] >= min_score]
+            logger.info(f"After filtering (min_score={min_score}): {len(filtered)} results")
 
-            # Handle no results case
-            if not filtered_results:
-                logger.info("No results found for the given query")
-                return self._empty_response(
+            if not filtered:
+                logger.info("No relevant results found")
+                return self._create_response(
                     query, 
-                    f"I don't have information about '{query}'. Please try rephrasing your question or provide more context."
+                    "I don't have specific information about that. Could you rephrase your question?",
+                    [], [], 'low', {'total_sources': 0}
                 )
 
-            # Prepare context from search results
-            context_chunks = self._prepare_context(filtered_results)
-            sources = self._create_sources(filtered_results)
+            # Prepare context and sources
+            context_chunks = self._prepare_context(filtered)
+            sources = self._create_sources(filtered)
 
-            logger.info("Generating response with LLM...")
+            # Generate response
             answer = self._generate_response(query, context_chunks, history_text)
-            logger.info(f"LLM response generated: {len(answer)} characters")
+            logger.info(f"Generated response: {len(answer)} chars")
 
-            # Calculate confidence
-            avg_score = sum(r['score'] for r in filtered_results) / len(filtered_results)
+            # Calculate metadata
+            avg_score = sum(r['score'] for r in filtered) / len(filtered)
             confidence = self._calculate_confidence(avg_score)
-
             metadata = {
                 'total_sources': len(sources),
                 'avg_relevance_score': round(avg_score, 4),
                 'llm_provider': self.llm_connector.__class__.__name__,
-                'history_messages_used': history_messages_count,
                 'query_resolved': resolved_query != query
             }
 
-            return {
-                'query': query,
-                'answer': answer,
-                'context_used': context_chunks,
-                'sources': sources,
-                'confidence': confidence,
-                'metadata': metadata
-            }
+            return self._create_response(query, answer, context_chunks, sources, confidence, metadata)
 
         except Exception as e:
             logger.error(f"Error processing query: {e}", exc_info=True)
-            return self._error_response(query, str(e))
+            return self._create_response(query, f"An error occurred: {str(e)}", [], [], 'error', {'error': str(e)})
 
     def _prepare_context(self, results: List[Dict[str, Any]], max_chunks: int = 3) -> List[str]:
-        """
-        Prepare context from LangChain search results with deduplication.
-        Reduces max_chunks to 3 for more focused, accurate context.
-        """
-        context_chunks = []
-        seen_texts = set()
+        """Extract unique context chunks from search results."""
+        seen = set()
+        chunks = []
         
-        for result in results:
-            text = result['text'].replace('--- Page', '').replace('---', '').strip()
-            text = ' '.join(text.split())  # Normalize whitespace
-            
-            if not text or len(text) < 20:
+        for r in results:
+            text = ' '.join(r['text'].replace('--- Page', '').replace('---', '').split())
+            if len(text) < 20:
                 continue
             
-            # Create a fingerprint for deduplication (first 100 chars)
             fingerprint = text[:100].lower()
-            
-            # Skip if we've seen very similar text
-            is_duplicate = False
-            for seen in seen_texts:
-                if fingerprint in seen or seen in fingerprint:
-                    is_duplicate = True
-                    break
-            
-            if not is_duplicate:
-                context_chunks.append(text)
-                seen_texts.add(fingerprint)
-                
-                if len(context_chunks) >= max_chunks:
+            if fingerprint not in seen:
+                chunks.append(text)
+                seen.add(fingerprint)
+                if len(chunks) >= max_chunks:
                     break
         
-        logger.info(f"📝 Selected {len(context_chunks)} unique context chunks from {len(results)} results")
-        return context_chunks
+        logger.info(f"Selected {len(chunks)} unique chunks from {len(results)} results")
+        return chunks
 
     def _create_sources(self, results: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        """Create source information - return only the most relevant source."""
+        """Create source metadata - returns only top source."""
         if not results:
             return []
         
-        # Sort by relevance score and take the top result
-        sorted_results = sorted(results, key=lambda x: x['score'], reverse=True)
-        top_result = sorted_results[0]
+        top = max(results, key=lambda x: x['score'])
+        text = ' '.join(top['text'].replace('---', '').split())
         
-        src = {
-            'filename': top_result['filename'],
-            'document_id': top_result['document_id'],
-            'relevance_score': round(top_result['score'], 4),
-            'metadata': top_result.get('metadata', {})
-        }
-        
-        if top_result.get('chunk_id'):
-            src['chunk_id'] = top_result['chunk_id']
-        
-        text = ' '.join(top_result['text'].replace('--- Page', '').replace('---', '').split())
-        src['preview'] = text[:80] + "..." if len(text) > 80 else text
-        
-        return [src]
+        return [{
+            'filename': top['filename'],
+            'document_id': top['document_id'],
+            'relevance_score': round(top['score'], 4),
+            'preview': text[:80] + "..." if len(text) > 80 else text,
+            'metadata': top.get('metadata', {})
+        }]
 
-    def _generate_response(
-        self, 
-        original_query: str, 
-        context_chunks: List[str], 
-        history_text: str = ""
-    ) -> str:
-        """Generate response from context and chat history, with pronoun resolution."""
+    def _generate_response(self, query: str, context_chunks: List[str], history: str = "") -> str:
+        """Generate LLM response with context and history."""
         
-        if not context_chunks and not history_text:
+        if not context_chunks and not history:
             return "I don't have information about this."
 
-        context_text = "\n\n".join([f"Context {i+1}: {c}" for i, c in enumerate(context_chunks)])
+        context_block = "\n\n".join([f"[{i+1}] {c}" for i, c in enumerate(context_chunks)])
         
-        history_block = (
-            "Conversation history (for continuity and context):\n" + history_text
-        ) if history_text else ""
+        # Build system prompt
+        system_parts = ["You are a knowledgeable assistant. Answer questions using the provided information."]
         
-        prompt = f"""You are a helpful assistant with access to a knowledge base and conversation history.
+        if history:
+            system_parts.append(f"\n## Recent Conversation:\n{history}")
+        
+        system_parts.append(f"\n## Knowledge Base:\n{context_block}")
+        system_parts.append(f"\n## User Question:\n{query}")
+        system_parts.append("""
+## Instructions:
+- If the question uses pronouns (he/she/it/they/this/that), check Recent Conversation to understand the reference
+- Answer based on the Knowledge Base information
+- Be conversational and natural
+- Don't mention "Knowledge Base" or "conversation history" in your response
+- ONLY use information from the Knowledge Base and Recent Conversation above
+- Do NOT use external knowledge or make assumptions
+- If user will gave you the their name you can use their name in the response as for example: "Hello John, how can I help you today?"
 
-            {history_block}
-
-            Knowledge Base:
-            {context_text}
-
-            User's Question: {original_query}
-
-            Instructions:
-            - If this is a follow-up question with pronouns (him/her/it/them/this/that), use conversation history to understand what the user is referring to, then answer using the Knowledge Base.
-            - Answer using information from the Knowledge Base above.
-            - If the Knowledge Base has relevant information, provide a natural, informative answer.
-            - Be conversational and helpful.
-            - Do not mention "Knowledge Base" or "context" in your response.
-
-            Answer:
-        """
+Answer:""")
+        
+        prompt = "\n".join(system_parts)
+        
         try:
-            logger.info(f"🤖 Sending prompt to LLM (context: {len(context_text)} chars)")
-            
+            print('prompt =========================================== ',prompt)
+            logger.info(f"Sending prompt to LLM ({len(context_block)} chars context)")
             response = self.llm_connector.generate_response(prompt)
-            print('response =========================================== ',response)
-            logger.info(f"🤖 LLM response received: {len(response)} chars")
+            logger.info(f"LLM response received ({len(response)} chars)")
             
-            # Fallback if response too short
             if len(response.strip()) < 20:
-                logger.warning("LLM response too short, using fallback")
-                sentences = " ".join(context_chunks).split('. ')
-                response = ". ".join(sentences[:5]) + "."
-
+                logger.warning("Response too short, using fallback")
+                return ". ".join(context_chunks[0].split('. ')[:3]) + "."
+            
             return response.strip()
             
         except Exception as e:
-            logger.error(f"Error generating LLM response: {e}")
-            sentences = " ".join(context_chunks).split('. ')
-            fallback_response = ". ".join(sentences[:3]) + "."
-            return fallback_response
+            logger.error(f"LLM error: {e}")
+            return ". ".join(context_chunks[0].split('. ')[:3]) + "."
 
     def _is_small_talk(self, query: str) -> bool:
-        """Detect small talk and greetings using zero-shot classification."""
-        q = (query or "").strip()
-        if not q:
+        """Detect greetings and small talk."""
+        q = query.strip().lower()
+        if len(q) == 0:
             return False
         
-        try:
-            if self._small_talk_clf is None:
-                from transformers import pipeline
-                self._small_talk_clf = pipeline(
-                    "zero-shot-classification", 
-                    model="facebook/bart-large-mnli"
-                )
-            
-            candidate_labels = [
-                "greeting",
-                "small talk",
-                "chit-chat",
-                "farewell",
-                "gratitude",
-                "compliment",
-                "well-being question",
-                "social nicety",
-                "casual conversation",
-                "question",
-                "information request"
-            ]
-            
-            result = self._small_talk_clf(
-                q, 
-                candidate_labels=candidate_labels, 
-                hypothesis_template="This text is {}."
-            )
-            
-            labels = result.get('labels', [])
-            scores = result.get('scores', [])
-            
-            if labels and scores:
-                top_label = labels[0].lower()
-                top_score = float(scores[0])
-                
-                greeting_like = {
-                    "greeting", "small talk", "chit-chat", "farewell", 
-                    "well-being question", "social nicety", "casual conversation"
-                }
-                
-                if top_label in greeting_like and top_score >= 0.70:
-                    return True
-                
-                if len(q) <= 40 and top_label in greeting_like.union({"gratitude", "compliment"}) and top_score >= 0.60:
-                    return True
-            
-            return False
-            
-        except Exception:
-            # Fallback heuristic
-            ql = q.lower()
-            if len(ql) <= 16 and re.fullmatch(r"(hi+|hello+|hey+|yo|hiya|namaste|hola|bonjour|ciao)[!. ]*", ql):
-                return True
-            if re.search(r"\b(how\s*(are|r)\s*(you|u)|how'?s\s*it\s*going|what'?s\s*up|how\s*have\s*you\s*been)\b", ql):
-                return True
-            return False
+        # Quick pattern matching
+        greetings = ['hi', 'hello', 'hey', 'yo', 'hiya', 'namaste', 'hola']
+        if len(q) <= 16 and any(q.startswith(g) for g in greetings):
+            return True
+        
+        if re.search(r'\b(how\s*(are|r)\s*(you|u)|how\'?s\s*it|what\'?s\s*up)\b', q):
+            return True
+        
+        return False
 
-    def _generate_small_talk_response(self, user_text: str) -> str:
-        """Generate response for small talk using LLM."""
-        prompt = f"""You are a friendly assistant. The user sent a casual greeting or small talk:
+    def _generate_small_talk_response(self, text: str) -> str:
+        """Generate friendly response for greetings."""
+        prompt = f"""Respond warmly to this greeting in 1-2 sentences:
 
-User: {user_text}
+User: {text}
 
-Respond warmly and naturally in 1-2 sentences."""
+Response:"""
         
         try:
-            reply = self.llm_connector.generate_response(prompt)
-            return reply.strip() if isinstance(reply, str) and reply.strip() else "Hello! How can I help you today?"
-        except Exception:
+            return self.llm_connector.generate_response(prompt).strip()
+        except:
             return "Hello! How can I help you today?"
 
-    def _calculate_confidence(self, avg_score: float) -> str:
-        """Calculate confidence based on average relevance score."""
-        if avg_score > 0.6:
+    def _calculate_confidence(self, score: float) -> str:
+        """Map relevance score to confidence level."""
+        if score > 0.6:
             return "high"
-        elif avg_score > 0.4:
+        elif score > 0.4:
             return "medium"
-        elif avg_score > 0.2:
+        elif score > 0.2:
             return "low"
-        else:
-            return "very_low"
+        return "very_low"
 
-    def _empty_response(self, query: str, msg: str) -> Dict[str, Any]:
-        """Generate empty response structure."""
+    def _create_response(
+        self, 
+        query: str, 
+        answer: str, 
+        context: List[str], 
+        sources: List[Dict], 
+        confidence: str, 
+        metadata: Dict
+    ) -> Dict[str, Any]:
+        """Create standardized response structure."""
+        metadata['total_sources'] = len(sources)
+        metadata['avg_relevance_score'] = metadata.get('avg_relevance_score', 0.0)
+        metadata['llm_provider'] = self.llm_connector.__class__.__name__
+        
         return {
             'query': query,
-            'answer': msg,
-            'context_used': [],
-            'sources': [],
-            'confidence': 'low',
-            'metadata': {
-                'total_sources': 0,
-                'avg_relevance_score': 0.0,
-                'llm_provider': self.llm_connector.__class__.__name__,
-            }
+            'answer': answer,
+            'context_used': context,
+            'sources': sources,
+            'confidence': confidence,
+            'metadata': metadata
         }
 
-    def _error_response(self, query: str, err: str) -> Dict[str, Any]:
-        """Generate error response structure."""
-        return {
-            'query': query,
-            'answer': f"An error occurred while processing your query: {err}",
-            'context_used': [],
-            'sources': [],
-            'confidence': 'error',
-            'metadata': {
-                'total_sources': 0,
-                'avg_relevance_score': 0.0,
-                'llm_provider': self.llm_connector.__class__.__name__,
-                'error': err
-            }
-        }
-
-    # Utility methods remain the same...
+    # Utility methods
     def add_documents(self, documents: List[Dict[str, Any]]) -> bool:
         try:
             success = self.vector_store.add_documents(documents)
             if success:
-                logger.info(f"Successfully added {len(documents)} documents to knowledge base")
+                logger.info(f"Added {len(documents)} documents")
             return success
         except Exception as e:
             logger.error(f"Error adding documents: {e}")
@@ -428,7 +299,7 @@ Respond warmly and naturally in 1-2 sentences."""
             results = self.vector_store.search(query, top_k=top_k)
             return [r for r in results if r['score'] >= min_score]
         except Exception as e:
-            logger.error(f"Error searching documents: {e}")
+            logger.error(f"Search error: {e}")
             return []
 
     def get_knowledge_base_stats(self) -> Dict[str, Any]:
@@ -438,7 +309,7 @@ Respond warmly and naturally in 1-2 sentences."""
             stats['llm_provider'] = self.llm_connector.__class__.__name__
             return stats
         except Exception as e:
-            logger.error(f"Error getting knowledge base stats: {e}")
+            logger.error(f"Stats error: {e}")
             return {'error': str(e)}
 
     def get_all_documents(self) -> List[Dict[str, Any]]:
@@ -453,10 +324,10 @@ Respond warmly and naturally in 1-2 sentences."""
     def clear_knowledge_base(self) -> bool:
         try:
             self.vector_store.clear_index()
-            logger.info("Knowledge base cleared successfully")
+            logger.info("Knowledge base cleared")
             return True
         except Exception as e:
-            logger.error(f"Error clearing knowledge base: {e}")
+            logger.error(f"Clear error: {e}")
             return False
 
     def test_llm_connection(self) -> Dict[str, Any]:
