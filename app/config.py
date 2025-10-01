@@ -38,6 +38,9 @@ class Settings(BaseSettings):
     celery_broker_url: str
     celery_result_backend: str
 
+    gemini_api_key:str
+    gemini_model:str
+
     class Config:
         env_file = ".env"
 

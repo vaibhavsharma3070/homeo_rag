@@ -232,7 +232,7 @@ async def process_query(request: QueryRequest):
     try:
         # Process, passing session_id to include conversational history in context
         result = rag_pipeline.process_query(request.query, request.top_k, session_id=request.session_id)
-        print('here is the response =====', result)
+        # print('here is the response =====', result)
         # Persist chat messages if database available
         try:
             if hasattr(rag_pipeline, 'vector_store') and hasattr(rag_pipeline.vector_store, 'save_chat_message'):
@@ -712,6 +712,7 @@ async def test_llm():
         return LLMTestResponse(
             status="error",
             provider="unknown",
+            model="unknown",
             error=str(e)
         )
 

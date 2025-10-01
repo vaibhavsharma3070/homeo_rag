@@ -16,8 +16,13 @@ import time
 from dataclasses import dataclass
 
 try:
-    # Optional: pgvector backend
-    from sqlalchemy import Column, Integer, String, Text, JSON, create_engine, select, func
+    # LangChain imports
+    from langchain_huggingface import HuggingFaceEmbeddings
+    from langchain_postgres import PGVector
+    from langchain.schema import Document as LangChainDocument
+    
+    # PostgreSQL and pgvector
+    from sqlalchemy import Column, Integer, String, Text, JSON, create_engine, select, func, text
     from sqlalchemy.orm import declarative_base, Session, sessionmaker
     from sqlalchemy.pool import QueuePool
     from pgvector.sqlalchemy import Vector
@@ -47,7 +52,7 @@ class IngestionProgress:
 Base = None
 
 class PGVectorStore:
-    """Enhanced PostgreSQL + pgvector-based vector store with parallel processing."""
+    """Enhanced PostgreSQL + pgvector-based vector store with LangChain integration."""
     
     def __init__(self, max_workers: int = 4, batch_size: int = 100):
         if not PGVECTOR_AVAILABLE:
@@ -66,7 +71,7 @@ class PGVectorStore:
         self.engine = create_engine(
             settings.database_url,
             poolclass=QueuePool,
-            pool_size=max_workers * 2,  # More connections for parallel processing
+            pool_size=max_workers * 2,
             max_overflow=max_workers,
             pool_pre_ping=True,
             pool_recycle=3600
@@ -77,7 +82,27 @@ class PGVectorStore:
         
         self._init_pg_base()
         self._setup_database()
+        
+        # Initialize LangChain PGVector store
+        self._init_langchain_vectorstore()
     
+    def _init_langchain_vectorstore(self):
+        """Initialize LangChain's PGVector store."""
+        # Create LangChain-compatible embeddings
+        self.langchain_embeddings = HuggingFaceEmbeddings(
+            model_name=settings.embedding_model,
+            model_kwargs={'device': 'cpu'},
+            encode_kwargs={'normalize_embeddings': False}
+        )
+        
+        # Initialize PGVector store with LangChain's default tables
+        self.vectorstore = PGVector(
+            embeddings=self.langchain_embeddings,
+            connection=settings.database_url,
+            use_jsonb=True,
+        )
+        
+        logger.info("LangChain PGVector store initialized")
 
     def _init_pg_base(self):
         global Base
@@ -85,30 +110,14 @@ class PGVectorStore:
             from sqlalchemy.orm import declarative_base as _declarative_base
             Base = _declarative_base()
         
-        class EmbeddingData(Base):
-            __tablename__ = "embedding_data"
-            __table_args__ = {"extend_existing": True}
-
-            id = Column(Integer, primary_key=True, autoincrement=True)
-            filename = Column(String(512), nullable=False)
-            file_path = Column(Text, nullable=False)
-            chunk_index = Column(Integer, nullable=False)
-            text = Column(Text, nullable=False)
-            embedding = Column(Vector(self.dimension))
-            document_metadata = Column(JSON)
-            total_chunks = Column(Integer, nullable=False)
-            source = Column(String(50), nullable=False, default='pdf')  # New source column
-            created_at = Column(Integer, nullable=False, default=lambda: int(time.time()))
-
-        self.EmbeddingData = EmbeddingData
-
+        # Keep old table for chat messages
         class ChatMessageORM(Base):
             __tablename__ = "chat_messages"
             __table_args__ = {"extend_existing": True}
 
             id = Column(Integer, primary_key=True, autoincrement=True)
             session_id = Column(String(64), index=True, nullable=False)
-            role = Column(String(16), nullable=False)  # 'user' | 'ai'
+            role = Column(String(16), nullable=False)
             message = Column(Text, nullable=False)
             embedding = Column(Vector(self.dimension))
             created_at = Column(Integer, nullable=False, default=lambda: int(time.time()))
@@ -119,7 +128,8 @@ class PGVectorStore:
         """Setup database with vector extension and tables."""
         try:
             with self.SessionLocal() as session:
-                session.execute(func.create_extension('vector', if_not_exists=True))
+                # Enable vector extension
+                session.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
                 session.commit()
                 logger.info("Vector extension enabled")
         except Exception as e:
@@ -134,7 +144,6 @@ class PGVectorStore:
             role = "ai"
         vector = None
         try:
-            # Compute embedding if model is available
             vector = self.embedding_model.encode([message])[0].astype(np.float32)
         except Exception as e:
             logger.warning(f"Failed to embed chat message: {e}")
@@ -161,7 +170,10 @@ class PGVectorStore:
     def get_chat_history(self, session_id: str) -> List[Dict[str, Any]]:
         """Fetch chat messages for a session ordered by created_at ascending."""
         with self.SessionLocal() as db:
-            rows = db.query(self.ChatMessageORM).filter_by(session_id=session_id).order_by(self.ChatMessageORM.created_at.asc(), self.ChatMessageORM.id.asc()).all()
+            rows = db.query(self.ChatMessageORM).filter_by(session_id=session_id).order_by(
+                self.ChatMessageORM.created_at.asc(), 
+                self.ChatMessageORM.id.asc()
+            ).all()
             return [
                 {
                     "id": r.id,
@@ -182,7 +194,6 @@ class PGVectorStore:
             chunks = doc['chunks']
             total_chunks = len(chunks)
             
-            # Create batches for this document
             for i in range(0, total_chunks, self.batch_size):
                 batch_chunks = []
                 batch_end = min(i + self.batch_size, total_chunks)
@@ -212,43 +223,39 @@ class PGVectorStore:
         return batches
 
     def _process_chunk_batch(self, batch: ChunkBatch) -> Dict[str, Any]:
-        """Process a single batch of chunks with source tracking."""
-        session = None
+        """Process a single batch of chunks and store in LangChain's tables."""
         try:
-            # Create new session for this worker
-            session = self.SessionLocal()
+            # Prepare LangChain documents
+            langchain_docs = []
             
-            # Generate embeddings for all chunks in batch
-            texts = [chunk['text'] for chunk in batch.chunks]
-            embeddings = self.embedding_model.encode(texts, convert_to_tensor=False)
-            
-            # Create embedding data objects
-            embedding_rows = []
-            for i, chunk in enumerate(batch.chunks):
-                # Determine source type from metadata or file extension
-                source_type = chunk.get('source_type', 'pdf')  # Default to pdf
+            for chunk in batch.chunks:
+                # Determine source type
+                source_type = chunk.get('source_type', 'pdf')
                 if 'source_url' in chunk.get('document_metadata', {}):
                     source_type = 'url'
                 elif chunk.get('file_path', '').startswith('http'):
                     source_type = 'url'
                 
-                embedding_rows.append(
-                    self.EmbeddingData(
-                        filename=chunk['filename'],
-                        file_path=chunk['file_path'],
-                        chunk_index=chunk['chunk_index'],
-                        text=chunk['text'],
-                        embedding=embeddings[i].tolist(),
-                        document_metadata=chunk['document_metadata'],
-                        total_chunks=chunk['total_chunks'],
-                        source=source_type,  # Set source type
-                        created_at=int(time.time())
-                    )
+                # Create LangChain Document with metadata
+                metadata = {
+                    'filename': chunk['filename'],
+                    'file_path': chunk['file_path'],
+                    'chunk_index': chunk['chunk_index'],
+                    'total_chunks': chunk['total_chunks'],
+                    'source': source_type,
+                    'created_at': int(time.time()),
+                    **chunk.get('document_metadata', {})
+                }
+                
+                doc = LangChainDocument(
+                    page_content=chunk['text'],
+                    metadata=metadata
                 )
+                langchain_docs.append(doc)
             
-            # Bulk insert
-            session.add_all(embedding_rows)
-            session.commit()
+            # Add documents to LangChain vectorstore
+            # This will store in langchain_pg_embedding and langchain_pg_collection tables
+            self.vectorstore.add_documents(langchain_docs)
             
             # Update progress
             with self.progress_lock:
@@ -268,8 +275,7 @@ class PGVectorStore:
                 'batch_id': batch.batch_id,
                 'status': 'success',
                 'chunks_processed': len(batch.chunks),
-                'filename': batch.document_info['filename'],
-                'source_type': source_type
+                'filename': batch.document_info['filename']
             }
             
         except Exception as e:
@@ -284,46 +290,37 @@ class PGVectorStore:
                 'chunks_failed': len(batch.chunks),
                 'filename': batch.document_info['filename']
             }
-        finally:
-            if session:
-                session.close()
 
     def add_documents_parallel(self, documents: List[Dict[str, Any]], 
                              progress_callback=None) -> Dict[str, Any]:
-        """Add documents using parallel processing."""
+        """Add documents using parallel processing with LangChain."""
         start_time = time.time()
         
-        # Initialize progress tracking
         total_chunks = sum(doc['total_chunks'] for doc in documents)
         self.progress = IngestionProgress(
             total_chunks=total_chunks,
             start_time=start_time
         )
         
-        # Create batches
         batches = self._create_chunk_batches(documents)
         self.progress.total_batches = len(batches)
         
         logger.info(f"Starting parallel ingestion: {len(documents)} documents, "
                    f"{total_chunks} chunks, {len(batches)} batches, {self.max_workers} workers")
         
-        # Process batches in parallel
         results = []
         with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
-            # Submit all batches
             future_to_batch = {
                 executor.submit(self._process_chunk_batch, batch): batch 
                 for batch in batches
             }
             
-            # Collect results as they complete
             for future in concurrent.futures.as_completed(future_to_batch):
                 batch = future_to_batch[future]
                 try:
                     result = future.result()
                     results.append(result)
                     
-                    # Call progress callback if provided
                     if progress_callback:
                         progress_info = {
                             'processed_chunks': self.progress.processed_chunks,
@@ -342,7 +339,6 @@ class PGVectorStore:
                         'error': str(e)
                     })
         
-        # Calculate final statistics
         successful_batches = sum(1 for r in results if r['status'] == 'success')
         failed_batches = len(results) - successful_batches
         total_time = time.time() - start_time
@@ -366,206 +362,213 @@ class PGVectorStore:
         
         return final_stats
 
-    # Keep original method for backward compatibility
     def add_documents(self, documents: List[Dict[str, Any]]) -> bool:
         """Add documents (uses parallel processing internally)."""
         result = self.add_documents_parallel(documents)
         return result['success']
 
-    def search(self, query: str, top_k: int = 5) -> List[Dict[str, Any]]:
-        """Hybrid search with source information."""
-        import re, math
-
+    def search(self, query: str, top_k: int = 4) -> List[Dict[str, Any]]:
+        """
+        Search using LangChain's similarity_search_with_score method.
+        """
         try:
-            results = {}
-
-            # --------- 1️⃣ Semantic search (vector search) ---------
-            query_vec = self.embedding_model.encode([query], convert_to_tensor=False)[0].tolist()
-            with self.SessionLocal() as session:
-                semantic_stmt = (
-                    select(
-                        self.EmbeddingData,
-                        (1 - self.EmbeddingData.embedding.cosine_distance(query_vec)).label('similarity_score')
-                    )
-                    .order_by(self.EmbeddingData.embedding.cosine_distance(query_vec))
-                    .limit(top_k)
-                )
-                semantic_rows = session.execute(semantic_stmt).all()
-                for row in semantic_rows:
-                    embedding_data = row[0]
-                    similarity_score = float(row[1]) if row[1] is not None else 0.0
-                    results[embedding_data.id] = {
-                        'chunk_id': embedding_data.id,
-                        'document_id': embedding_data.id,
-                        'filename': embedding_data.filename,
-                        'text': embedding_data.text,
-                        'score': similarity_score,
-                        'source': embedding_data.source,  # Include source
-                        'metadata': {
-                            'chunk_index': embedding_data.chunk_index,
-                            'document_metadata': embedding_data.document_metadata,
-                            'created_at': embedding_data.created_at,
-                        }
+            logger.info(f"Searching with LangChain for: '{query}', top_k={top_k}")
+            
+            # Use LangChain's similarity search with score
+            langchain_results = self.vectorstore.similarity_search_with_score(
+                query=query,
+                k=top_k
+            )
+            
+            logger.info(f"LangChain returned {len(langchain_results)} results")
+            # print('langchain_results =========================================== ',langchain_results)
+            
+            # Convert to your format
+            results = []
+            for doc, score in langchain_results:
+                results.append({
+                    'chunk_id': doc.metadata.get('id', 0),
+                    'document_id': doc.metadata.get('id', 0),
+                    'filename': doc.metadata.get('filename', 'unknown'),
+                    'text': doc.page_content,
+                    'score': float(1 - score),  # Convert distance to similarity
+                    'source': doc.metadata.get('source', 'pdf'),
+                    'metadata': {
+                        'chunk_index': doc.metadata.get('chunk_index', 0),
+                        'document_metadata': {k: v for k, v in doc.metadata.items() 
+                                            if k not in ['filename', 'chunk_index', 'source', 'created_at']},
+                        'created_at': doc.metadata.get('created_at', int(time.time())),
                     }
-
-            # --------- 2️⃣ Per-word keyword search (TF-IDF style weighting) ---------
-            query_tokens = re.findall(r'\w+', query.lower())
-
-            # Expanded stopword list + min length filter
-            stopwords = set([
-                'the','of','and','in','on','for','a','an','with','to','is',
-                'what','who','when','where','which','how','why','this','that',
-                'by','as','at','be','or','from','it','are','was','were','can'
-            ])
-            keywords = [t for t in query_tokens if t not in stopwords and len(t) >= 3]
-
-            with self.SessionLocal() as session:
-                # Count total chunks (for IDF)
-                total_chunks = session.query(self.EmbeddingData).count()
-
-                keyword_counts = {}
-                for token in keywords:
-                    stmt = select(self.EmbeddingData).where(self.EmbeddingData.text.ilike(f"%{token}%"))
-                    rows = session.execute(stmt).scalars().all()
-                    n_chunks_with_token = len(rows)
-
-                    # Compute IDF weight (rare tokens get higher score)
-                    idf = math.log((total_chunks + 1) / (1 + n_chunks_with_token))
-
-                    for row in rows:
-                        if row.id not in keyword_counts:
-                            keyword_counts[row.id] = {'score': 0.0, 'data': row}
-                        keyword_counts[row.id]['score'] += idf  # weight instead of +1
-
-                # Merge results
-                for item in keyword_counts.values():
-                    row = item['data']
-                    score = float(item['score'])
-                    if row.id in results:
-                        results[row.id]['score'] = max(results[row.id]['score'], score)
-                    else:
-                        results[row.id] = {
-                            'chunk_id': row.id,
-                            'document_id': row.id,
-                            'filename': row.filename,
-                            'text': row.text,
-                            'score': score,
-                            'source': row.source,  # Include source
-                            'metadata': {
-                                'chunk_index': row.chunk_index,
-                                'document_metadata': row.document_metadata,
-                                'created_at': row.created_at,
-                            }
-                        }
-
-            # --------- 3️⃣ Sort combined results by score ---------
-            sorted_results = sorted(results.values(), key=lambda x: x['score'], reverse=True)
-            return sorted_results[:top_k]
-
+                })
+            
+            # print('final results of langchain_results =========================================== ',results)
+            return results
+            
         except Exception as e:
-            logger.error(f"Error in hybrid search: {e}")
+            logger.error(f"Error in LangChain similarity search: {e}")
             raise
 
     def get_index_stats(self) -> Dict[str, Any]:
-        """Get index statistics with parallel processing info."""
-        with self.SessionLocal() as session:
-            total_chunks = session.execute(select(func.count(self.EmbeddingData.id))).scalar()
-            total_docs = session.execute(
-                select(func.count(func.distinct(self.EmbeddingData.filename)))
-            ).scalar()
+        """Get index statistics."""
+        try:
+            # Query LangChain's embedding table
+            with self.SessionLocal() as session:
+                # LangChain stores data in langchain_pg_embedding table
+                result = session.execute(
+                    text("SELECT COUNT(*) FROM langchain_pg_embedding")
+                ).scalar()
+                total_chunks = result if result else 0
+                
+                # Count unique collections (documents)
+                result = session.execute(
+                    text("SELECT COUNT(*) FROM langchain_pg_collection")
+                ).scalar()
+                total_docs = result if result else 0
+                
+                return {
+                    'total_documents': total_docs,
+                    'total_chunks': total_chunks,
+                    'index_size': total_chunks,
+                    'embedding_dimension': self.dimension,
+                    'max_workers': self.max_workers,
+                    'batch_size': self.batch_size,
+                }
+        except Exception as e:
+            logger.error(f"Error getting index stats: {e}")
             return {
-                'total_documents': total_docs,
-                'total_chunks': total_chunks,
-                'index_size': total_chunks,
+                'total_documents': 0,
+                'total_chunks': 0,
+                'index_size': 0,
                 'embedding_dimension': self.dimension,
                 'max_workers': self.max_workers,
                 'batch_size': self.batch_size,
             }
 
     def clear_index(self):
-        """Clear the index."""
-        Base.metadata.drop_all(self.engine)
-        Base.metadata.create_all(self.engine)
-        logger.info("PGVector index cleared")
-
-    # Add other methods from original implementation...
-    def get_document_by_id(self, doc_id: int) -> Optional[Dict[str, Any]]:
-        with self.SessionLocal() as session:
-            stmt = select(self.EmbeddingData).where(self.EmbeddingData.id == doc_id).limit(1)
-            embedding_data = session.execute(stmt).scalar_one_or_none()
-            if not embedding_data:
-                return None
-            return {
-                'id': embedding_data.id,
-                'filename': embedding_data.filename,
-                'file_path': embedding_data.file_path,
-                'total_chunks': embedding_data.total_chunks,
-                'metadata': embedding_data.document_metadata,
-            }
-
-    def get_chunk_by_id(self, chunk_id: int) -> Optional[Dict[str, Any]]:
-        with self.SessionLocal() as session:
-            embedding_data = session.get(self.EmbeddingData, chunk_id)
-            if not embedding_data:
-                return None
-            return {
-                'id': embedding_data.id,
-                'document_id': embedding_data.id,
-                'chunk_index': embedding_data.chunk_index,
-                'text': embedding_data.text,
-                'filename': embedding_data.filename,
-            }
+        """Clear the LangChain vectorstore index."""
+        try:
+            # Delete all documents from vectorstore
+            with self.SessionLocal() as session:
+                session.execute(text("TRUNCATE TABLE langchain_pg_embedding"))
+                session.execute(text("TRUNCATE TABLE langchain_pg_collection CASCADE"))
+                session.commit()
+            logger.info("LangChain vectorstore cleared")
+        except Exception as e:
+            logger.error(f"Error clearing index: {e}")
 
     def get_all_documents(self) -> List[Dict[str, Any]]:
-        with self.SessionLocal() as session:
-            stmt = (
-                select(
-                    self.EmbeddingData.id,
-                    self.EmbeddingData.filename,
-                    self.EmbeddingData.file_path,
-                    self.EmbeddingData.total_chunks,
-                    self.EmbeddingData.document_metadata,
-                )
-                .distinct(
-                    self.EmbeddingData.filename,
-                    self.EmbeddingData.file_path,
-                    self.EmbeddingData.total_chunks,
-                )
-                .order_by(
-                    self.EmbeddingData.filename,
-                    self.EmbeddingData.file_path,
-                    self.EmbeddingData.total_chunks,
-                    self.EmbeddingData.id,
-                )
-            )
-            rows = session.execute(stmt).all()
-            return [
-                {
-                    'id': row.id,
-                    'filename': row.filename,
-                    'file_path': row.file_path,
-                    'total_chunks': row.total_chunks,
-                    'metadata': row.document_metadata,
-                }
-                for row in rows
-            ]
+        """Get all documents from LangChain vectorstore, grouped by filename."""
+        try:
+            with self.SessionLocal() as session:
+                # Query to get unique documents based on filename in cmetadata
+                result = session.execute(
+                    text("""
+                        SELECT 
+                            MIN(e.id) AS doc_id,
+                            e.cmetadata->>'filename' AS filename,
+                            e.cmetadata->>'file_path' AS file_path,
+                            COUNT(*) AS total_chunks,
+                            (array_agg(e.cmetadata ORDER BY e.id))[1] AS metadata
+                        FROM langchain_pg_embedding e
+                        WHERE e.cmetadata->>'filename' IS NOT NULL
+                        GROUP BY e.cmetadata->>'filename', e.cmetadata->>'file_path'
+                        ORDER BY MIN(e.id) ASC
+                    """)
+                ).fetchall()
+
+                documents: List[Dict[str, Any]] = []
+                for row in result:
+                    doc_id = row[0]
+                    filename = row[1] or 'unknown'
+                    file_path = row[2] or ''
+                    total_chunks = int(row[3]) if row[3] is not None else 0
+                    metadata = row[4] if row[4] else {}
+
+                    documents.append({
+                        'id': doc_id,
+                        'filename': filename,
+                        'file_path': file_path,
+                        'total_chunks': total_chunks,
+                        'metadata': metadata,
+                    })
+
+                return documents
+        except Exception as e:
+            logger.error(f"Error getting all documents: {e}")
+            return []
 
     def get_document_chunks(self, doc_id: int) -> List[Dict[str, Any]]:
-        with self.SessionLocal() as session:
-            doc_stmt = select(self.EmbeddingData.filename).where(self.EmbeddingData.id == doc_id).limit(1)
-            filename = session.execute(doc_stmt).scalar_one_or_none()
-            if not filename:
-                return []
-            
-            stmt = select(self.EmbeddingData).where(self.EmbeddingData.filename == filename).order_by(self.EmbeddingData.chunk_index)
-            rows = session.execute(stmt).scalars().all()
-            return [
-                {
-                    'id': c.id,
-                    'document_id': c.id,
-                    'chunk_index': c.chunk_index,
-                    'text': c.text,
-                    'filename': c.filename,
+        """Get chunks for a specific document."""
+        try:
+            with self.SessionLocal() as session:
+                result = session.execute(
+                    text("""
+                        SELECT 
+                            e.id,
+                            e.document as text,
+                            e.cmetadata
+                        FROM langchain_pg_embedding e
+                        WHERE e.collection_id = :doc_id
+                        ORDER BY (e.cmetadata->>'chunk_index')::int
+                    """),
+                    {"doc_id": doc_id}
+                ).fetchall()
+                
+                return [
+                    {
+                        'id': row[0],
+                        'text': row[1],
+                        'metadata': row[2] if row[2] else {}
+                    }
+                    for row in result
+                ]
+        except Exception as e:
+            logger.error(f"Error getting document chunks: {e}")
+            return []
+
+    def get_document_by_id(self, doc_id: int) -> Optional[Dict[str, Any]]:
+        """Get a single document/collection by its id with metadata and chunk count."""
+        try:
+            with self.SessionLocal() as session:
+                row = session.execute(
+                    text(
+                        """
+                        SELECT 
+                            c.id AS collection_id,
+                            c.name AS collection_name,
+                            c.cmetadata AS collection_metadata,
+                            COALESCE(cnt.total_chunks, 0) AS total_chunks
+                        FROM langchain_pg_collection c
+                        LEFT JOIN (
+                            SELECT e.collection_id, COUNT(*) AS total_chunks
+                            FROM langchain_pg_embedding e
+                            GROUP BY e.collection_id
+                        ) AS cnt ON cnt.collection_id = c.id
+                        WHERE c.id = :doc_id
+                        """
+                    ),
+                    {"doc_id": doc_id}
+                ).fetchone()
+
+                if not row:
+                    return None
+
+                collection_id = row[0]
+                collection_name = row[1]
+                collection_metadata = row[2] if row[2] else {}
+                total_chunks = int(row[3]) if row[3] is not None else 0
+
+                file_path = ""
+                if isinstance(collection_metadata, dict):
+                    file_path = collection_metadata.get('file_path', "") or ""
+
+                return {
+                    'id': collection_id,
+                    'filename': collection_name,
+                    'file_path': file_path,
+                    'total_chunks': total_chunks,
+                    'metadata': collection_metadata,
                 }
-                for c in rows
-            ]
+        except Exception as e:
+            logger.error(f"Error getting document by id: {e}")
+            return None

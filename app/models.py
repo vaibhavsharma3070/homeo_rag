@@ -32,7 +32,7 @@ class SearchResponse(BaseModel):
 
 class DocumentInfo(BaseModel):
     """Model for document information."""
-    id: int
+    id: str
     filename: str
     file_path: str
     total_chunks: int
