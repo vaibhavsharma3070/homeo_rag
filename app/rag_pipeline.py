@@ -97,8 +97,9 @@ class RAGPipeline:
                     logger.warning(f"Failed to load history: {e}")
             
             # Resolve pronouns AFTER loading history
-            resolved_query = self._resolve_pronoun_query(query, history_text)
-            
+            resolved_query = self.reform_query(query, history_text)
+            print('resolved_query =========================================== ',resolved_query)
+
             # Search with resolved query
             search_results = self.vector_store.search(resolved_query, top_k=top_k)
             logger.info(f"Search returned {len(search_results)} results")
@@ -184,6 +185,7 @@ class RAGPipeline:
         context_block = "\n\n".join([f"[{i+1}] {c}" for i, c in enumerate(context_chunks)])
         
         # Build system prompt
+
         system_parts = ["You are a knowledgeable assistant. Answer questions using the provided information."]
         
         if history:
@@ -221,6 +223,48 @@ Answer:""")
             logger.error(f"LLM error: {e}")
             return ". ".join(context_chunks[0].split('. ')[:3]) + "."
 
+    def reform_query(self, query: str, history: str = "") -> str:
+        """Generate LLM response with context and history."""
+        
+        system_parts = []
+        if history:
+            system_parts.append(f"\n## Recent Conversation:\n{history}")
+        
+        system_parts.append(f"\n## User Question:\n{query}")
+        system_parts.append("""
+        You are a query rewriter for a Retrieval-Augmented Generation system.
+
+        Your task:
+        - Rewrite the latest user question into a self-contained, explicit query.
+        - Use the conversation history to resolve pronouns or vague references.
+        - Do not add any extra information that is not present in the conversation.
+        - Keep the rewritten query clear and concise.
+        - Return ONLY the rewritten query, nothing else.
+
+        Conversation history:
+        {history}
+
+        Latest user query:
+        {query}
+
+        Rewritten query:
+
+        Answer:""")
+        
+        prompt = "\n".join(system_parts)
+        
+        try:
+            print('prompt for query formatting =========================================== ',prompt)
+            response = self.llm_connector.generate_response(prompt)
+            logger.info(f"LLM response received ({len(response)} chars)")
+            
+            return response.strip() 
+            
+        except Exception as e:
+            logger.error(f"LLM error: {e}")
+            return query
+
+            
     def _is_small_talk(self, query: str) -> bool:
         """Detect greetings and small talk."""
         q = query.strip().lower()
