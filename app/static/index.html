@@ -737,7 +737,7 @@
                 <div class="upload-text">
                     🎯 Drop PDF files here or click to browse
                 </div>
-                <p style="color: #718096; font-size: 0.9rem;">Supports multiple PDF files only</p>
+                <p style="color: #718096; font-size: 0.9rem;">Supports PDF file only</p>
                 <input type="file" id="file-input" class="file-input" multiple accept=".pdf" onchange="handleFileSelect(event)">
             </div>
             
@@ -832,7 +832,7 @@
             <div class="query-form">
                 <input type="text" class="url-input" id="weblink-input" placeholder="Paste a URL...">
                 <div class="query-controls">
-                    <button class="btn" onclick="addWeblink()">➕ Search Web</button>
+                    <button class="btn" onclick="addWeblink()">➕Add Weblink</button>
                 </div>
             </div>
             <div class="response-area" id="weblink-response" style="display: none;"></div>
@@ -1370,7 +1370,7 @@
                 showModal('Weblink Processing Failed', error.message, 'error');
                 progressContainer.style.display = 'none';
                 searchBtn.disabled = false;
-                searchBtn.innerHTML = '➕ Search Web';
+                searchBtn.innerHTML = '➕ Add Weblink';
                 responseArea.innerHTML = `
                     <div style="color: #742a2a; background: #fed7d7; padding: 15px; border-radius: 8px;">
                         <strong>❌ Weblink Processing Failed!</strong><br>
@@ -1435,7 +1435,7 @@
                         
                         // Re-enable button and clear input
                         searchBtn.disabled = false;
-                        searchBtn.innerHTML = '➕ Search Web';
+                        searchBtn.innerHTML = '➕Add Weblink';
                         document.getElementById('weblink-input').value = '';
                         
                         // Show success modal
@@ -1467,7 +1467,7 @@
                         showModal('Weblink Processing Failed', errorMsg, 'error');
                         progressContainer.style.display = 'none';
                         searchBtn.disabled = false;
-                        searchBtn.innerHTML = '➕ Search Web';
+                        searchBtn.innerHTML = '➕Add Weblink';
                         return;
                     }
                     
@@ -1735,6 +1735,30 @@
         const CHAT_STORAGE_KEY = 'homeo_rag_chat_history';
         const CHAT_SESSION_KEY = 'homeo_rag_chat_session_id';
 
+        // Function to check if there are active chats or sessions
+        function hasActiveChat() {
+            return chatMessages.length > 0 || chatSessionId !== null;
+        }
+
+        // Function to update new chat button state
+        function updateNewChatButtonState() {
+            const newChatBtn = document.getElementById('new-chat-btn');
+            if (!newChatBtn) return;
+            
+            const hasActive = hasActiveChat();
+            newChatBtn.disabled = !hasActive;
+            newChatBtn.title = hasActive ? 'New Chat' : 'No active chat to clear';
+            
+            // Update visual state
+            if (hasActive) {
+                newChatBtn.style.opacity = '1';
+                newChatBtn.style.cursor = 'pointer';
+            } else {
+                newChatBtn.style.opacity = '0.5';
+                newChatBtn.style.cursor = 'not-allowed';
+            }
+        }
+
         function loadChatHistory() {
             try {
                 const raw = localStorage.getItem(CHAT_STORAGE_KEY);
@@ -1747,6 +1771,8 @@
             } catch (_) {
                 chatSessionId = null;
             }
+            // Update button state after loading chat history
+            updateNewChatButtonState();
         }
 
         function saveChatHistory() {
@@ -1754,6 +1780,8 @@
             try {
                 if (chatSessionId) localStorage.setItem(CHAT_SESSION_KEY, chatSessionId);
             } catch (_) {}
+            // Update button state after saving chat history
+            updateNewChatButtonState();
         }
 
         function renderChat() {
@@ -1801,6 +1829,7 @@
             chatMessages.push({ role, text, ...extras });
             saveChatHistory();
             renderChat();
+            // Button state is already updated in saveChatHistory()
         }
 
         async function sendChatMessage() {
@@ -1827,6 +1856,8 @@
                         if (sidRes.ok && sidData.session_id) {
                             chatSessionId = sidData.session_id;
                             try { localStorage.setItem(CHAT_SESSION_KEY, chatSessionId); } catch (_) {}
+                            // Update button state after creating session
+                            updateNewChatButtonState();
                         }
                     } catch (_) { /* proceed without session if API fails */ }
                 }
@@ -1919,6 +1950,8 @@
             const container = document.getElementById('chat-messages');
             if (container) container.innerHTML = '';
             renderChat();
+            // Update button state after clearing chat
+            updateNewChatButtonState();
         }
 
         // Load initial data
@@ -1950,6 +1983,8 @@
             refreshUploadedDocsIndex();
             // Do not load previous chat: start blank per requirements
             renderChat();
+            // Update button state after initialization
+            updateNewChatButtonState();
             // Default to chat view in new layout
             navigate('query', document.querySelector('.nav-item[data-section="query"]'));
         });
