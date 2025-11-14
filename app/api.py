@@ -31,6 +31,9 @@ from celery.result import AsyncResult
 # Global storage for tracking ingestion progress
 ingestion_progress_store = {}
 
+# Track corrupted tasks to avoid log spam
+corrupted_tasks_cache = set()
+
 class EnhancedIngestionResponse(IngestionResponse):
     """Enhanced response model with parallel processing stats."""
     processing_time: float = 0.0
@@ -96,21 +99,23 @@ async def serve_ui():
 
 @app.post("/api/ingest", response_model=EnhancedIngestionResponse, tags=["Documents"])
 async def ingest_documents_parallel(
-    files: List[UploadFile] = File(..., description="PDF files to ingest"),
+    files: List[UploadFile] = File(..., description="PDF, CSV, or XLSX files to ingest"),
     max_workers: int = Form(default=4, description="Number of parallel workers"),
     batch_size: int = Form(default=100, description="Chunks per batch")
 ):
-    """Ingest PDF documents using parallel processing."""
+    """Ingest documents (PDF, CSV, XLSX) using parallel processing."""
     try:
         if not files:
             raise HTTPException(status_code=400, detail="No files provided")
         
         # Validate file types
+        supported_extensions = ['.pdf', '.csv', '.xlsx', '.xls']
         for file in files:
-            if not file.filename.lower().endswith('.pdf'):
+            file_ext = Path(file.filename).suffix.lower()
+            if file_ext not in supported_extensions:
                 raise HTTPException(
                     status_code=400, 
-                    detail=f"File {file.filename} is not a PDF"
+                    detail=f"File {file.filename} is not a supported format. Supported: PDF, CSV, XLSX, XLS"
                 )
         
         processed_docs = []
@@ -120,10 +125,21 @@ async def ingest_documents_parallel(
         logger.info(f"Starting document processing for {len(files)} files...")
         for file in files:
             try:
+                # Ensure upload directory exists
+                upload_path = Path(settings.upload_dir)
+                upload_path.mkdir(parents=True, exist_ok=True)
+                
                 # Save uploaded file
-                file_path = Path(settings.upload_dir) / file.filename
+                file_path = upload_path / file.filename
+                
+                # Read file content
+                file_content = await file.read()
+                
+                # Save to disk
                 with open(file_path, "wb") as buffer:
-                    shutil.copyfileobj(file.file, buffer)
+                    buffer.write(file_content)
+                
+                logger.info(f"Saved file {file.filename} to {file_path}")
                 
                 # Process document
                 doc_info = document_processor.process_document(file_path)
@@ -133,7 +149,7 @@ async def ingest_documents_parallel(
                 logger.info(f"Processed {file.filename} into {doc_info['total_chunks']} chunks")
                 
             except Exception as e:
-                logger.error(f"Error processing {file.filename}: {e}")
+                logger.error(f"Error processing {file.filename}: {e}", exc_info=True)
                 continue
         
         if not processed_docs:
@@ -177,7 +193,7 @@ async def ingest_documents_parallel(
 
 @app.post("/api/ingest/async", tags=["Documents"])
 async def ingest_documents_async(
-    files: List[UploadFile] = File(..., description="PDF files to ingest"),
+    files: List[UploadFile] = File(..., description="PDF, CSV, or XLSX files to ingest"),
     max_workers: int = Form(default=4),
     batch_size: int = Form(default=100)
 ):
@@ -188,16 +204,30 @@ async def ingest_documents_async(
             raise HTTPException(status_code=400, detail="No files provided")
 
         saved_paths = []
+        supported_extensions = ['.pdf', '.csv', '.xlsx', '.xls']
         for file in files:
             logger.debug(f"Processing file: {file.filename}")
-            if not file.filename.lower().endswith('.pdf'):
-                logger.error(f"File rejected (not PDF): {file.filename}")
-                raise HTTPException(status_code=400, detail=f"File {file.filename} is not a PDF")
+            file_ext = Path(file.filename).suffix.lower()
+            if file_ext not in supported_extensions:
+                logger.error(f"File rejected (unsupported format): {file.filename}")
+                raise HTTPException(
+                    status_code=400, 
+                    detail=f"File {file.filename} is not a supported format. Supported: PDF, CSV, XLSX, XLS"
+                )
 
-            dest = Path(settings.upload_dir) / file.filename
-            dest.parent.mkdir(parents=True, exist_ok=True)  # ensure directory exists
+            # Ensure upload directory exists
+            upload_path = Path(settings.upload_dir)
+            upload_path.mkdir(parents=True, exist_ok=True)
+            
+            dest = upload_path / file.filename
+            
+            # Read file content
+            file_content = await file.read()
+            
+            # Save to disk
             with open(dest, "wb") as buffer:
-                shutil.copyfileobj(file.file, buffer)
+                buffer.write(file_content)
+            
             saved_paths.append(str(dest))
             logger.debug(f"Saved file to: {dest}")
 
@@ -220,19 +250,64 @@ async def ingest_documents_async(
 async def get_ingest_progress(job_id: str):
     try:
         res = AsyncResult(job_id, app=celery_app)
+        
+        # Check if this task is already known to be corrupted
+        is_corrupted = job_id in corrupted_tasks_cache
+        
+        # Safely get state, handling corrupted metadata
+        try:
+            state = res.state
+        except (ValueError, KeyError) as e:
+            # Handle corrupted Celery metadata
+            if not is_corrupted:
+                # Log warning only once per corrupted task
+                logger.warning(f"Corrupted task metadata detected for job {job_id}: {e}. Task will be marked as FAILURE.")
+                corrupted_tasks_cache.add(job_id)
+                is_corrupted = True
+            else:
+                # Use debug level for subsequent checks to reduce log spam
+                logger.debug(f"Corrupted task metadata for job {job_id} (already known)")
+            state = "FAILURE"
+        
         response = {
             "job_id": job_id,
-            "state": res.state,
+            "state": state,
             "progress": 0,
-            "detail": None,
+            "detail": "Task metadata is corrupted. Please start a new ingestion task." if state == "FAILURE" else None,
         }
-        info = res.info or {}
-        if isinstance(info, dict):
-            response.update(info)
-        if res.successful():
-            response["state"] = "SUCCESS"
+        
+        # Only try to get info if task is not corrupted
+        if not is_corrupted and state != "FAILURE":
+            try:
+                info = res.info or {}
+                if isinstance(info, dict):
+                    response.update(info)
+            except (ValueError, KeyError) as e:
+                if job_id not in corrupted_tasks_cache:
+                    logger.warning(f"Could not retrieve task info for job {job_id}: {e}")
+                    corrupted_tasks_cache.add(job_id)
+                else:
+                    logger.debug(f"Could not retrieve task info for job {job_id} (already known corrupted)")
+                response["state"] = "FAILURE"
+                response["detail"] = "Task metadata is corrupted. Please start a new ingestion task."
+        
+        # Safely check if successful, handling corrupted metadata
+        if not is_corrupted and state != "FAILURE":
+            try:
+                if res.successful():
+                    response["state"] = "SUCCESS"
+            except (ValueError, KeyError) as e:
+                if job_id not in corrupted_tasks_cache:
+                    logger.warning(f"Could not check task success status for job {job_id}: {e}")
+                    corrupted_tasks_cache.add(job_id)
+                else:
+                    logger.debug(f"Could not check task success status for job {job_id} (already known corrupted)")
+                response["state"] = "FAILURE"
+                response["detail"] = "Task metadata is corrupted. Please start a new ingestion task."
+        
         return response
     except Exception as e:
+        logger.exception(f"Error getting ingest progress for job {job_id}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/api/query", response_model=QueryResponse, tags=["RAG"])

@@ -62,7 +62,7 @@ class RAGPipeline:
         self, 
         query: str, 
         top_k: int = 5, 
-        min_score: float = 0.2, 
+        min_score: float = 0.1, 
         session_id: Optional[str] = None, 
         history_turns: int = 4
     ) -> Dict[str, Any]:
@@ -97,11 +97,11 @@ class RAGPipeline:
                     logger.warning(f"Failed to load history: {e}")
             
             # Resolve pronouns AFTER loading history
-            resolved_query = self.reform_query(query, history_text)
-            print('resolved_query =========================================== ',resolved_query)
+            # resolved_query = self.reform_query(query, history_text)
+            # print('resolved_query =========================================== ',resolved_query)
 
             # Search with resolved query
-            search_results = self.vector_store.search(resolved_query, top_k=top_k)
+            search_results = self.vector_store.search(query, top_k=top_k)
             logger.info(f"Search returned {len(search_results)} results")
 
             # Filter by score
@@ -131,7 +131,7 @@ class RAGPipeline:
                 'total_sources': len(sources),
                 'avg_relevance_score': round(avg_score, 4),
                 'llm_provider': self.llm_connector.__class__.__name__,
-                'query_resolved': resolved_query != query
+                'query_resolved': False
             }
 
             return self._create_response(query, answer, context_chunks, sources, confidence, metadata)
@@ -140,13 +140,14 @@ class RAGPipeline:
             logger.error(f"Error processing query: {e}", exc_info=True)
             return self._create_response(query, f"An error occurred: {str(e)}", [], [], 'error', {'error': str(e)})
 
-    def _prepare_context(self, results: List[Dict[str, Any]], max_chunks: int = 3) -> List[str]:
+    def _prepare_context(self, results: List[Dict[str, Any]], max_chunks: int = 10) -> List[str]:
         """Extract unique context chunks from search results."""
         seen = set()
         chunks = []
         
         for r in results:
             text = ' '.join(r['text'].replace('--- Page', '').replace('---', '').split())
+            print('text =========================================== ',text)
             if len(text) < 20:
                 continue
             

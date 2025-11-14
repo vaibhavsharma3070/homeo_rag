@@ -8,6 +8,7 @@ from loguru import logger
 from app.config import settings
 import PyPDF2
 from langchain.text_splitter import RecursiveCharacterTextSplitter
+import pandas as pd
 
 class DocumentProcessor:
     """Handles PDF document processing, text extraction, and preprocessing."""
@@ -41,6 +42,127 @@ class DocumentProcessor:
             logger.error(f"Error extracting text from {pdf_path}: {e}")
             raise
     
+    def extract_data_from_csv(self, csv_path: Path) -> List[Dict[str, Any]]:
+        """Extract data from CSV file and return as list of row dictionaries."""
+        try:
+            # Read CSV file with keep_default_na=False to preserve empty strings
+            df = pd.read_csv(csv_path, encoding='utf-8', keep_default_na=False, na_values=[''])
+            
+            # Convert each row to a dictionary
+            rows = []
+            for idx, row in df.iterrows():
+                row_dict = {}
+                for col, value in row.items():
+                    # Preserve all values including zeros and empty strings
+                    # Only skip if truly NaN
+                    if pd.isna(value):
+                        row_dict[col] = ''
+                    else:
+                        row_dict[col] = value
+                rows.append(row_dict)
+            
+            logger.info(f"Extracted {len(rows)} rows with {len(df.columns)} columns from {csv_path.name}")
+            return rows
+            
+        except UnicodeDecodeError:
+            # Try with different encodings
+            encodings = ['latin-1', 'iso-8859-1', 'cp1252']
+            for encoding in encodings:
+                try:
+                    df = pd.read_csv(csv_path, encoding=encoding, keep_default_na=False, na_values=[''])
+                    rows = []
+                    for idx, row in df.iterrows():
+                        row_dict = {}
+                        for col, value in row.items():
+                            if pd.isna(value):
+                                row_dict[col] = ''
+                            else:
+                                row_dict[col] = value
+                        rows.append(row_dict)
+                    logger.info(f"Extracted {len(rows)} rows from {csv_path.name} using {encoding} encoding")
+                    return rows
+                except:
+                    continue
+            raise Exception(f"Could not decode CSV file {csv_path.name} with any encoding")
+        except Exception as e:
+            logger.error(f"Error extracting data from {csv_path}: {e}")
+            raise
+    
+    def extract_data_from_xlsx(self, xlsx_path: Path, sheet_name: str = None) -> List[Dict[str, Any]]:
+        """Extract data from XLSX file and return as list of row dictionaries."""
+        try:
+            # Read XLSX file with na_values=[] to preserve empty strings
+            if sheet_name:
+                df = pd.read_excel(xlsx_path, sheet_name=sheet_name, engine='openpyxl', keep_default_na=False, na_values=[''])
+            else:
+                # Read first sheet by default
+                df = pd.read_excel(xlsx_path, engine='openpyxl', keep_default_na=False, na_values=[''])
+            
+            # Convert each row to a dictionary
+            rows = []
+            for idx, row in df.iterrows():
+                row_dict = {}
+                for col, value in row.items():
+                    # Preserve all values including zeros and empty strings
+                    if pd.isna(value):
+                        row_dict[col] = ''
+                    else:
+                        row_dict[col] = value
+                rows.append(row_dict)
+            
+            logger.info(f"Extracted {len(rows)} rows with {len(df.columns)} columns from {xlsx_path.name}")
+            return rows
+            
+        except Exception as e:
+            logger.error(f"Error extracting data from {xlsx_path}: {e}")
+            raise
+    
+    def format_row_as_chunk(self, row, row_number=None) -> str:
+        parts = []
+
+        if row_number:
+            parts.append(f"Record Number: {row_number}")
+
+        for key, value in row.items():
+            if value is None:
+                continue
+            try:
+                if pd.isna(value):
+                    continue
+            except:
+                pass
+
+            v = str(value).strip()
+            if not v or v.lower() in ("none", "nan"):
+                continue
+
+            parts.append(f"{key}: {v}")
+
+        return "\n".join(parts)
+
+    
+    def verify_csv_processing(self, csv_path: Path) -> Dict[str, Any]:
+        """Verify that all rows from CSV are processed correctly."""
+        # Read original CSV
+        df = pd.read_csv(csv_path, keep_default_na=False)
+        original_row_count = len(df)
+        
+        # Process document
+        doc_info = self._process_csv(csv_path)
+        processed_row_count = doc_info['total_chunks']
+        
+        # Compare
+        verification = {
+            'original_rows': original_row_count,
+            'processed_rows': processed_row_count,
+            'match': original_row_count == processed_row_count,
+            'difference': original_row_count - processed_row_count,
+            'accuracy_percentage': (processed_row_count / original_row_count * 100) if original_row_count > 0 else 0
+        }
+        
+        logger.info(f"Verification: {verification}")
+        return verification
+
     def preprocess_text(self, text: str) -> str:
         """Clean and normalize extracted text."""
         # Remove excessive whitespace
@@ -81,51 +203,192 @@ class DocumentProcessor:
         logger.info(f"Created {len(chunks)} chunks from text using LangChain")
         return chunks
     
-    def process_document(self, pdf_path: Path) -> Dict[str, Any]:
-        """Process a PDF document and return structured data."""
+    def process_document(self, file_path: Path) -> Dict[str, Any]:
+        """Process a document (PDF, CSV, or XLSX) and return structured data."""
         try:
-            # Extract text
-            raw_text = self.extract_text_from_pdf(pdf_path)
+            file_ext = file_path.suffix.lower()
             
-            # Preprocess text
-            clean_text = self.preprocess_text(raw_text)
-            
-            # Create chunks
-            chunks = self.chunk_text(clean_text)
-            
-            # Create document metadata
-            document_info = {
-                'filename': pdf_path.name,
-                'file_path': str(pdf_path),
-                'total_chunks': len(chunks),
-                'chunks': chunks,
-                'metadata': {
-                    'file_size': pdf_path.stat().st_size,
-                    'processing_timestamp': str(pdf_path.stat().st_mtime),
-                    'chunk_size': settings.chunk_size,
-                    'chunk_overlap': settings.chunk_overlap,
-                    'source_type': 'pdf'
-                },
-                'source_type': 'pdf'  # Add source type at document level
-            }
-            
-            logger.info(f"Successfully processed {pdf_path.name} into {len(chunks)} chunks")
-            return document_info
+            if file_ext == '.pdf':
+                return self._process_pdf(file_path)
+            elif file_ext == '.csv':
+                return self._process_csv(file_path)
+            elif file_ext in ['.xlsx', '.xls']:
+                return self._process_xlsx(file_path)
+            else:
+                raise ValueError(f"Unsupported file type: {file_ext}")
             
         except Exception as e:
-            logger.error(f"Error processing document {pdf_path}: {e}")
+            logger.error(f"Error processing document {file_path}: {e}")
             raise
     
+    def _process_pdf(self, pdf_path: Path) -> Dict[str, Any]:
+        """Process a PDF document and return structured data."""
+        # Extract text
+        raw_text = self.extract_text_from_pdf(pdf_path)
+        
+        # Preprocess text
+        clean_text = self.preprocess_text(raw_text)
+        
+        # Create chunks
+        chunks = self.chunk_text(clean_text)
+        
+        # Create document metadata
+        document_info = {
+            'filename': pdf_path.name,
+            'file_path': str(pdf_path),
+            'total_chunks': len(chunks),
+            'chunks': chunks,
+            'metadata': {
+                'file_size': pdf_path.stat().st_size,
+                'processing_timestamp': str(pdf_path.stat().st_mtime),
+                'chunk_size': settings.chunk_size,
+                'chunk_overlap': settings.chunk_overlap,
+                'source_type': 'pdf'
+            },
+            'source_type': 'pdf'
+        }
+        
+        logger.info(f"Successfully processed {pdf_path.name} into {len(chunks)} chunks")
+        return document_info
+    
+    def _process_csv(self, csv_path: Path) -> Dict[str, Any]:
+        """Process a CSV file and return structured data with each row as a chunk."""
+        # Extract rows
+        rows = self.extract_data_from_csv(csv_path)
+        
+        if not rows:
+            logger.warning(f"No rows extracted from {csv_path.name}")
+            return None
+        
+        # Format each row as a chunk with row tracking
+        chunks = []
+        skipped_rows = []
+        
+        for idx, row in enumerate(rows, start=1):  # Start from 1 for human-readable row numbers
+            chunk_text = self.format_row_as_chunk(row, row_number=idx)
+            
+            if chunk_text.strip():
+                chunks.append(chunk_text)
+            else:
+                skipped_rows.append(idx)
+                logger.warning(f"Skipped empty row {idx} in {csv_path.name}")
+        
+        # Log statistics
+        logger.info(f"CSV Processing Stats - Total rows: {len(rows)}, "
+                    f"Valid chunks: {len(chunks)}, Skipped: {len(skipped_rows)}")
+        
+        if skipped_rows:
+            logger.warning(f"Skipped row numbers: {skipped_rows[:10]}..." if len(skipped_rows) > 10 else f"Skipped row numbers: {skipped_rows}")
+        
+        # Create document metadata
+        document_info = {
+            'filename': csv_path.name,
+            'file_path': str(csv_path),
+            'total_chunks': len(chunks),
+            'chunks': chunks,
+            'metadata': {
+                'file_size': csv_path.stat().st_size,
+                'processing_timestamp': str(csv_path.stat().st_mtime),
+                'source_type': 'csv',
+                'total_rows': len(rows),
+                'valid_rows': len(chunks),
+                'skipped_rows': len(skipped_rows),
+                'columns': list(rows[0].keys()) if rows else [],
+                'column_count': len(rows[0].keys()) if rows else 0
+            },
+            'source_type': 'csv'
+        }
+        
+        logger.info(f"Successfully processed {csv_path.name}: {len(chunks)} chunks from {len(rows)} rows")
+        return document_info
+    
+    def _process_xlsx(self, xlsx_path: Path) -> Dict[str, Any]:
+        rows = self.extract_data_from_xlsx(xlsx_path)
+        
+        if not rows:
+            logger.warning(f"No rows extracted from {xlsx_path.name}")
+            return None
+
+        chunks = []
+        skipped_rows = []
+
+        BATCH_SIZE = 5
+        batch = []
+
+        for idx, row in enumerate(rows, start=1):
+            chunk_text = self.format_row_as_chunk(row, row_number=idx)
+
+            if chunk_text.strip():
+                batch.append(chunk_text)
+            else:
+                skipped_rows.append(idx)
+                logger.warning(f"Skipped empty row {idx}")
+
+            # 🔥 When batch reaches 5 rows → make a chunk
+            if len(batch) == BATCH_SIZE:
+                chunk_block = "\n\n--- RECORD BREAK ---\n\n".join(batch)
+                chunks.append(chunk_block)
+                batch = []  # reset
+
+        # Handle last leftover rows (<5)
+        if batch:
+            chunk_block = "\n\n--- RECORD BREAK ---\n\n".join(batch)
+            chunks.append(chunk_block)
+
+        document_info = {
+            'filename': xlsx_path.name,
+            'file_path': str(xlsx_path),
+            'chunks': chunks,
+            'total_chunks': len(chunks),
+            'metadata': {
+                'total_rows': len(rows),
+                'valid_rows': len(rows) - len(skipped_rows),
+                'skipped_rows': skipped_rows,
+                'chunk_size': BATCH_SIZE,
+            }
+        }
+
+        return document_info
+
+    
     def get_processed_documents(self) -> List[Dict[str, Any]]:
-        """Get list of all processed documents."""
+        """Get list of all processed documents (PDF, CSV, XLSX)."""
         documents = []
         
+        # Process PDF files
         for pdf_file in self.upload_dir.glob("*.pdf"):
             try:
                 doc_info = self.process_document(pdf_file)
                 documents.append(doc_info)
             except Exception as e:
                 logger.error(f"Error processing {pdf_file}: {e}")
+                continue
+        
+        # Process CSV files
+        for csv_file in self.upload_dir.glob("*.csv"):
+            try:
+                doc_info = self.process_document(csv_file)
+                documents.append(doc_info)
+            except Exception as e:
+                logger.error(f"Error processing {csv_file}: {e}")
+                continue
+        
+        # Process XLSX files
+        for xlsx_file in self.upload_dir.glob("*.xlsx"):
+            try:
+                doc_info = self.process_document(xlsx_file)
+                documents.append(doc_info)
+            except Exception as e:
+                logger.error(f"Error processing {xlsx_file}: {e}")
+                continue
+        
+        # Process XLS files
+        for xls_file in self.upload_dir.glob("*.xls"):
+            try:
+                doc_info = self.process_document(xls_file)
+                documents.append(doc_info)
+            except Exception as e:
+                logger.error(f"Error processing {xls_file}: {e}")
                 continue
         
         return documents

@@ -74,9 +74,32 @@ def ingest_documents_task(self, file_paths: List[str], max_workers: int = 4, bat
         }
         return result
     except Exception as e:
-        logger.error(f"Ingestion task failed: {e}")
-        self.update_state(state=states.FAILURE, meta={'error': str(e)})
-        raise
+        import traceback
+        error_msg = str(e)
+        error_traceback = traceback.format_exc()
+        logger.error(f"Ingestion task failed: {error_msg}\n{error_traceback}")
+        
+        # Try to update state, but don't fail if it can't be stored (e.g., corrupted metadata)
+        try:
+            self.update_state(
+                state=states.FAILURE, 
+                meta={
+                    'error': error_msg,
+                    'error_type': type(e).__name__,
+                    'traceback': error_traceback[:1000]  # Limit traceback size
+                }
+            )
+        except Exception as state_error:
+            logger.error(f"Failed to update task state: {state_error}")
+        
+        # Return failure result instead of raising to avoid Celery metadata corruption
+        return {
+            'success': False,
+            'message': f'Ingestion failed: {error_msg}',
+            'error': error_msg,
+            'error_type': type(e).__name__,
+            'progress': 100
+        }
 
 
 @shared_task(bind=True, name="app.tasks.weblink_ingestion_task")
@@ -168,6 +191,29 @@ def weblink_ingestion_task(self, url: str, depth: int = 1, max_workers: int = 4,
             'progress': 100
         }
     except Exception as e:
-        logger.error(f"Weblink task failed: {e}")
-        self.update_state(state=states.FAILURE, meta={'error': str(e)})
-        raise
+        import traceback
+        error_msg = str(e)
+        error_traceback = traceback.format_exc()
+        logger.error(f"Weblink task failed: {error_msg}\n{error_traceback}")
+        
+        # Try to update state, but don't fail if it can't be stored (e.g., corrupted metadata)
+        try:
+            self.update_state(
+                state=states.FAILURE,
+                meta={
+                    'error': error_msg,
+                    'error_type': type(e).__name__,
+                    'traceback': error_traceback[:1000]  # Limit traceback size
+                }
+            )
+        except Exception as state_error:
+            logger.error(f"Failed to update task state: {state_error}")
+        
+        # Return failure result instead of raising to avoid Celery metadata corruption
+        return {
+            'success': False,
+            'message': f'Weblink ingestion failed: {error_msg}',
+            'error': error_msg,
+            'error_type': type(e).__name__,
+            'progress': 100
+        }

@@ -186,13 +186,14 @@ class PGVectorStore:
             ]
 
     def _create_chunk_batches(self, documents: List[Dict[str, Any]]) -> List[ChunkBatch]:
-        """Create batches of chunks for parallel processing."""
+        """Create batches with complete metadata."""
         batches = []
         batch_id = 0
         
         for doc in documents:
             chunks = doc['chunks']
             total_chunks = len(chunks)
+            chunk_metadata_list = doc.get('chunk_metadata', [])
             
             for i in range(0, total_chunks, self.batch_size):
                 batch_chunks = []
@@ -204,8 +205,12 @@ class PGVectorStore:
                         'file_path': doc['file_path'],
                         'chunk_index': chunk_idx,
                         'text': chunks[chunk_idx],
-                        'document_metadata': doc.get('metadata', {}),
-                        'total_chunks': doc['total_chunks']
+                        'document_metadata': {
+                        **doc.get('metadata', {}),
+                        'chunk_metadata': chunk_metadata_list[chunk_idx] if chunk_metadata_list and len(chunk_metadata_list) > chunk_idx else {}
+                    },
+
+                        'total_chunks': total_chunks
                     }
                     batch_chunks.append(chunk_data)
                 
@@ -215,7 +220,7 @@ class PGVectorStore:
                     document_info={
                         'filename': doc['filename'],
                         'file_path': doc['file_path'],
-                        'total_chunks': doc['total_chunks']
+                        'total_chunks': total_chunks
                     }
                 ))
                 batch_id += 1
@@ -223,20 +228,19 @@ class PGVectorStore:
         return batches
 
     def _process_chunk_batch(self, batch: ChunkBatch) -> Dict[str, Any]:
-        """Process a single batch of chunks and store in LangChain's tables."""
+        """Process a single batch of chunks and store with RICH metadata."""
         try:
-            # Prepare LangChain documents
             langchain_docs = []
             
             for chunk in batch.chunks:
-                # Determine source type
+                # Get source type
                 source_type = chunk.get('source_type', 'pdf')
                 if 'source_url' in chunk.get('document_metadata', {}):
                     source_type = 'url'
                 elif chunk.get('file_path', '').startswith('http'):
                     source_type = 'url'
                 
-                # Create LangChain Document with metadata
+                # Base metadata
                 metadata = {
                     'filename': chunk['filename'],
                     'file_path': chunk['file_path'],
@@ -244,17 +248,42 @@ class PGVectorStore:
                     'total_chunks': chunk['total_chunks'],
                     'source': source_type,
                     'created_at': int(time.time()),
-                    **chunk.get('document_metadata', {})
                 }
                 
+                # CRITICAL: Add chunk-specific metadata if available
+                doc_metadata = chunk.get('document_metadata', {})
+                chunk_metadata_list = doc_metadata.get('chunk_metadata', [])
+                
+                # If we have rich metadata for this chunk, add it
+                if chunk_metadata_list and chunk['chunk_index'] < len(chunk_metadata_list):
+                    chunk_meta = chunk_metadata_list[chunk['chunk_index']]
+                    
+                    # Add row number
+                    if 'row_number' in chunk_meta:
+                        metadata['row_number'] = chunk_meta['row_number']
+                    
+                    # Add all searchable fields from the row
+                    for key, value in chunk_meta.items():
+                        if key.startswith('field_'):
+                            metadata[key] = value
+                    
+                    # Store complete row data for exact retrieval
+                    if 'row_data' in chunk_meta:
+                        metadata['row_data'] = str(chunk_meta['row_data'])
+                
+                # Add other document metadata
+                for k, v in doc_metadata.items():
+                    if k not in ['chunk_metadata'] and k not in metadata:
+                        metadata[k] = v
+                
+                # Create LangChain document
                 doc = LangChainDocument(
                     page_content=chunk['text'],
                     metadata=metadata
                 )
                 langchain_docs.append(doc)
             
-            # Add documents to LangChain vectorstore
-            # This will store in langchain_pg_embedding and langchain_pg_collection tables
+            # Add to vectorstore
             self.vectorstore.add_documents(langchain_docs)
             
             # Update progress
@@ -264,11 +293,10 @@ class PGVectorStore:
                 
                 elapsed = time.time() - self.progress.start_time
                 chunks_per_second = self.progress.processed_chunks / elapsed if elapsed > 0 else 0
-                eta = (self.progress.total_chunks - self.progress.processed_chunks) / chunks_per_second if chunks_per_second > 0 else 0
                 
                 logger.info(
-                    f"Batch {batch.batch_id} completed: {self.progress.processed_chunks}/{self.progress.total_chunks} chunks "
-                    f"({chunks_per_second:.1f} chunks/sec, ETA: {eta:.1f}s)"
+                    f"Batch {batch.batch_id}: {self.progress.processed_chunks}/{self.progress.total_chunks} "
+                    f"({chunks_per_second:.1f} chunks/sec)"
                 )
             
             return {
@@ -281,14 +309,12 @@ class PGVectorStore:
         except Exception as e:
             with self.progress_lock:
                 self.progress.failed_chunks += len(batch.chunks)
-            
-            logger.error(f"Error processing batch {batch.batch_id}: {e}")
+            logger.error(f"Batch {batch.batch_id} error: {e}")
             return {
                 'batch_id': batch.batch_id,
                 'status': 'error',
                 'error': str(e),
-                'chunks_failed': len(batch.chunks),
-                'filename': batch.document_info['filename']
+                'chunks_failed': len(batch.chunks)
             }
 
     def add_documents_parallel(self, documents: List[Dict[str, Any]], 
@@ -367,10 +393,10 @@ class PGVectorStore:
         result = self.add_documents_parallel(documents)
         return result['success']
 
-    def search(self, query: str, top_k: int = 4) -> List[Dict[str, Any]]:
+    def search(self, query: str, top_k: int = 20) -> List[Dict[str, Any]]:
         """
         Search using LangChain's similarity_search_with_score method.
-        """
+        """ 
         try:
             logger.info(f"Searching with LangChain for: '{query}', top_k={top_k}")
             
@@ -380,7 +406,7 @@ class PGVectorStore:
                 k=top_k
             )
             
-            logger.info(f"LangChain returned {len(langchain_results)} results")
+            # logger.info(f"LangChain returned {langchain_results} results")
             # print('langchain_results =========================================== ',langchain_results)
             
             # Convert to your format
@@ -401,7 +427,7 @@ class PGVectorStore:
                     }
                 })
             
-            # print('final results of langchain_results =========================================== ',results)
+            print('langchain_results =========================================== ',results)
             return results
             
         except Exception as e:

@@ -735,10 +735,10 @@
                  ondrop="handleDrop(event)" ondragover="handleDragOver(event)" ondragleave="handleDragLeave(event)"
                  id="upload-area">
                 <div class="upload-text">
-                    🎯 Drop PDF files here or click to browse
+                    🎯 Drop files here or click to browse
                 </div>
-                <p style="color: #718096; font-size: 0.9rem;">Supports PDF file only</p>
-                <input type="file" id="file-input" class="file-input" multiple accept=".pdf" onchange="handleFileSelect(event)">
+                <p style="color: #718096; font-size: 0.9rem;">Supports PDF, CSV, XLSX, and XLS files</p>
+                <input type="file" id="file-input" class="file-input" multiple accept=".pdf,.csv,.xlsx,.xls" onchange="handleFileSelect(event)">
             </div>
             
             <div class="file-list" id="selected-files" style="display: none;"></div>
@@ -894,15 +894,24 @@
         function validateFiles(files) {
             const validFiles = [];
             const invalidFiles = [];
-            const allowedTypes = ['application/pdf'];
-            const allowedExtensions = ['.pdf'];
+            const allowedTypes = [
+                'application/pdf',
+                'text/csv',
+                'application/vnd.ms-excel',
+                'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                'application/excel',
+                'application/x-excel',
+                'application/x-msexcel'
+            ];
+            const allowedExtensions = ['.pdf', '.csv', '.xlsx', '.xls'];
             
             Array.from(files).forEach(file => {
                 const fileExtension = file.name.toLowerCase().substring(file.name.lastIndexOf('.'));
-                const isValidType = allowedTypes.includes(file.type);
+                const isValidType = file.type === '' || allowedTypes.includes(file.type);
                 const isValidExtension = allowedExtensions.includes(fileExtension);
                 
-                if (isValidType && isValidExtension) {
+                // Accept file if extension is valid (MIME type can be unreliable, especially for CSV)
+                if (isValidExtension) {
                     validFiles.push(file);
                 } else {
                     invalidFiles.push(file);
@@ -992,8 +1001,8 @@
                     <strong>Invalid file type detected!</strong><br><br>
                     <strong>Invalid files:</strong><br>
                     ${invalidFileNames}<br><br>
-                    <strong>Only PDF files are allowed.</strong><br>
-                    Please select files with .pdf extension only.
+                    <strong>Only PDF, CSV, XLSX, and XLS files are allowed.</strong><br>
+                    Please select files with .pdf, .csv, .xlsx, or .xls extensions.
                 `;
                 
                 showModal('File Validation Error', message, 'error');
@@ -1081,7 +1090,7 @@
 
         async function uploadFilesAsync() {
             if (selectedFiles.length === 0) {
-                showModal('Upload Error', 'Please select PDF files to upload.', 'warning');
+                showModal('Upload Error', 'Please select files to upload.', 'warning');
                 return;
             }
 
@@ -1116,8 +1125,19 @@
                 return;
             }
 
-            // Poll progress
+            // Poll progress with timeout
+            let pollCount = 0;
+            const maxPolls = 600; // 15 minutes max (600 * 1.5s = 900s)
             async function poll() {
+                pollCount++;
+                if (pollCount > maxPolls) {
+                    showModal('Upload Timeout', 'The upload is taking longer than expected. Please try again or check the server logs.', 'warning');
+                    container.style.display = 'none';
+                    uploadBtn.disabled = false;
+                    uploadBtn.innerHTML = '📤 Upload';
+                    return;
+                }
+
                 try {
                     const r = await fetch(`${API_BASE}/api/ingest/progress/${jobId}`);
                     const p = await r.json();
@@ -1163,8 +1183,9 @@
                         return;
                     }
 
-                    if (p.state === 'FAILURE') {
-                        showModal('Background Ingestion Failed', p.error || 'Unknown error', 'error');
+                    if (p.state === 'FAILURE' || p.state === 'UNKNOWN') {
+                        const errorMsg = p.detail || p.error || 'Task failed or metadata is corrupted. Please try uploading again.';
+                        showModal('Background Ingestion Failed', errorMsg, 'error');
                         container.style.display = 'none';
                         uploadBtn.disabled = false;
                         uploadBtn.innerHTML = '📤 Upload';
@@ -1173,6 +1194,11 @@
 
                     setTimeout(poll, 1500);
                 } catch (e) {
+                    console.error('Error polling progress:', e);
+                    // Continue polling on temporary errors, but stop after too many consecutive errors
+                    if (pollCount % 10 === 0) {
+                        console.warn(`Polling error count: ${pollCount}, continuing...`);
+                    }
                     setTimeout(poll, 2000);
                 }
             }
@@ -1380,8 +1406,19 @@
                 return;
             }
             
-            // Poll for progress updates
+            // Poll for progress updates with timeout
+            let weblinkPollCount = 0;
+            const maxWeblinkPolls = 600; // 15 minutes max
             async function pollWeblinkProgress() {
+                weblinkPollCount++;
+                if (weblinkPollCount > maxWeblinkPolls) {
+                    showModal('Weblink Processing Timeout', 'The weblink processing is taking longer than expected. Please try again or check the server logs.', 'warning');
+                    progressContainer.style.display = 'none';
+                    searchBtn.disabled = false;
+                    searchBtn.innerHTML = '➕Add Weblink';
+                    return;
+                }
+
                 try {
                     const progressResponse = await fetch(`${API_BASE}/api/ingest/progress/${jobId}`);
                     const progress = await progressResponse.json();
@@ -1453,9 +1490,9 @@
                         return;
                     }
                     
-                    // Handle failure
-                    if (progress.state === 'FAILURE') {
-                        const errorMsg = progress.error || 'Unknown error occurred during processing';
+                    // Handle failure (including corrupted tasks)
+                    if (progress.state === 'FAILURE' || progress.state === 'UNKNOWN') {
+                        const errorMsg = progress.detail || progress.error || 'Task failed or metadata is corrupted. Please try processing again.';
                         
                         responseArea.innerHTML = `
                             <div style="color: #742a2a; background: #fed7d7; padding: 15px; border-radius: 8px;">
@@ -1476,7 +1513,10 @@
                     
                 } catch (error) {
                     console.error('Error polling weblink progress:', error);
-                    // Continue polling even if there's a temporary error
+                    // Continue polling on temporary errors
+                    if (weblinkPollCount % 10 === 0) {
+                        console.warn(`Weblink polling error count: ${weblinkPollCount}, continuing...`);
+                    }
                     setTimeout(pollWeblinkProgress, 2000);
                 }
             }
@@ -1516,7 +1556,7 @@
                         documentsList.innerHTML = `
                             <div style="text-align: center; color: #718096; padding: 40px;">
                                 📭 No documents uploaded yet<br>
-                                <small>Upload some PDF files to get started</small>
+                                <small>Upload some files (PDF, CSV, XLSX) to get started</small>
                             </div>
                         `;
                     } else {
