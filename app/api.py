@@ -34,6 +34,28 @@ ingestion_progress_store = {}
 # Track corrupted tasks to avoid log spam
 corrupted_tasks_cache = set()
 
+def cleanup_corrupted_task(job_id: str):
+    """Attempt to clean up a corrupted task result from Redis."""
+    try:
+        from celery.result import AsyncResult
+        res = AsyncResult(job_id, app=celery_app)
+        # Try to forget/delete the corrupted result
+        try:
+            res.forget()
+            logger.info(f"Cleaned up corrupted task result for job {job_id}")
+        except Exception as forget_error:
+            logger.debug(f"Could not forget task {job_id}: {forget_error}")
+            # Try to delete from Redis directly if available
+            try:
+                backend = celery_app.backend
+                if hasattr(backend, 'delete'):
+                    backend.delete(job_id)
+                    logger.info(f"Deleted corrupted task result from backend for job {job_id}")
+            except Exception as delete_error:
+                logger.debug(f"Could not delete task {job_id} from backend: {delete_error}")
+    except Exception as e:
+        logger.debug(f"Error cleaning up corrupted task {job_id}: {e}")
+
 class EnhancedIngestionResponse(IngestionResponse):
     """Enhanced response model with parallel processing stats."""
     processing_time: float = 0.0
@@ -248,67 +270,89 @@ async def ingest_documents_async(
 
 @app.get("/api/ingest/progress/{job_id}", tags=["Documents"])
 async def get_ingest_progress(job_id: str):
+    """Get ingestion progress for a job."""
     try:
         res = AsyncResult(job_id, app=celery_app)
         
         # Check if this task is already known to be corrupted
         is_corrupted = job_id in corrupted_tasks_cache
         
-        # Safely get state, handling corrupted metadata
+        # Safely get state
+        state = None
         try:
             state = res.state
-        except (ValueError, KeyError) as e:
-            # Handle corrupted Celery metadata
-            if not is_corrupted:
-                # Log warning only once per corrupted task
-                logger.warning(f"Corrupted task metadata detected for job {job_id}: {e}. Task will be marked as FAILURE.")
-                corrupted_tasks_cache.add(job_id)
-                is_corrupted = True
+            logger.debug(f"Task {job_id} state: {state}")
+        except (ValueError, KeyError, AttributeError, TypeError) as e:
+            error_msg = str(e)
+            if "Exception information must include the exception type" in error_msg:
+                if not is_corrupted:
+                    logger.warning(f"Corrupted task metadata for job {job_id}: {e}")
+                    corrupted_tasks_cache.add(job_id)
+                    cleanup_corrupted_task(job_id)
+                    is_corrupted = True
+                state = None
             else:
-                # Use debug level for subsequent checks to reduce log spam
-                logger.debug(f"Corrupted task metadata for job {job_id} (already known)")
-            state = "FAILURE"
+                logger.warning(f"Error getting state for job {job_id}: {e}")
+                state = None
         
+        # Build response
         response = {
             "job_id": job_id,
-            "state": state,
+            "state": state or "PENDING",
             "progress": 0,
-            "detail": "Task metadata is corrupted. Please start a new ingestion task." if state == "FAILURE" else None,
         }
         
-        # Only try to get info if task is not corrupted
-        if not is_corrupted and state != "FAILURE":
-            try:
-                info = res.info or {}
-                if isinstance(info, dict):
-                    response.update(info)
-            except (ValueError, KeyError) as e:
-                if job_id not in corrupted_tasks_cache:
-                    logger.warning(f"Could not retrieve task info for job {job_id}: {e}")
-                    corrupted_tasks_cache.add(job_id)
-                else:
-                    logger.debug(f"Could not retrieve task info for job {job_id} (already known corrupted)")
-                response["state"] = "FAILURE"
-                response["detail"] = "Task metadata is corrupted. Please start a new ingestion task."
+        # If corrupted, return early
+        if is_corrupted:
+            response["state"] = "FAILURE"
+            response["detail"] = "Task metadata is corrupted. Please start a new ingestion task."
+            response["progress"] = 100
+            return response
         
-        # Safely check if successful, handling corrupted metadata
-        if not is_corrupted and state != "FAILURE":
+        # Try to get detailed info
+        if state and state not in ["PENDING", "FAILURE"]:
             try:
-                if res.successful():
-                    response["state"] = "SUCCESS"
-            except (ValueError, KeyError) as e:
-                if job_id not in corrupted_tasks_cache:
-                    logger.warning(f"Could not check task success status for job {job_id}: {e}")
-                    corrupted_tasks_cache.add(job_id)
+                info = res.info
+                if info and isinstance(info, dict):
+                    response.update(info)
+                    logger.debug(f"Task {job_id} info: {info}")
+            except Exception as e:
+                logger.debug(f"Could not get info for {job_id}: {e}")
+        
+        # Check if task is complete
+        if state == "SUCCESS":
+            try:
+                result = res.result
+                if result and isinstance(result, dict):
+                    response.update(result)
+                    logger.debug(f"Task {job_id} result: {result}")
+            except Exception as e:
+                logger.debug(f"Could not get result for {job_id}: {e}")
+        
+        # Check if task failed
+        if state == "FAILURE":
+            try:
+                result = res.result
+                if result and isinstance(result, dict):
+                    response.update(result)
                 else:
-                    logger.debug(f"Could not check task success status for job {job_id} (already known corrupted)")
-                response["state"] = "FAILURE"
-                response["detail"] = "Task metadata is corrupted. Please start a new ingestion task."
+                    response["error"] = str(result) if result else "Task failed"
+                logger.debug(f"Task {job_id} failure result: {result}")
+            except Exception as e:
+                logger.debug(f"Could not get failure result for {job_id}: {e}")
+                response["error"] = "Task failed"
+            response["progress"] = 100
         
         return response
+        
     except Exception as e:
-        logger.exception(f"Error getting ingest progress for job {job_id}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.exception(f"Error getting progress for job {job_id}")
+        return {
+            "job_id": job_id,
+            "state": "PENDING",
+            "progress": 0,
+            "detail": f"Error checking task status: {str(e)}"
+        }
 
 @app.post("/api/query", response_model=QueryResponse, tags=["RAG"])
 async def process_query(request: QueryRequest):
