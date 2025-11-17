@@ -34,6 +34,28 @@ ingestion_progress_store = {}
 # Track corrupted tasks to avoid log spam
 corrupted_tasks_cache = set()
 
+# Worker readiness tracking
+_worker_ready = False
+
+def check_worker_ready():
+    """Check if Celery worker is ready"""
+    global _worker_ready
+    if _worker_ready:
+        return True
+    
+    try:
+        # Send a simple ping task to check worker availability
+        inspect = celery_app.control.inspect()
+        active = inspect.active()
+        if active and len(active) > 0:
+            _worker_ready = True
+            logger.info("Celery worker is ready")
+            return True
+    except Exception as e:
+        logger.warning(f"Worker not ready yet: {e}")
+    
+    return False
+
 def cleanup_corrupted_task(job_id: str):
     """Attempt to clean up a corrupted task result from Redis."""
     try:
@@ -254,6 +276,17 @@ async def ingest_documents_async(
             logger.debug(f"Saved file to: {dest}")
 
         logger.debug(f"Enqueuing Celery task for {len(saved_paths)} file(s)")
+        
+        # Check if worker is ready, wait briefly if not
+        if not check_worker_ready():
+            logger.info("Worker not ready, waiting 2 seconds...")
+            import time
+            time.sleep(2)
+            
+            # Check again after waiting
+            if not check_worker_ready():
+                logger.warning("Worker still not ready, but proceeding with task queue")
+        
         task = celery_app.send_task(
             "app.tasks.ingest_documents_task",
             args=[saved_paths, max_workers, batch_size]
@@ -360,7 +393,7 @@ async def process_query(request: QueryRequest):
     try:
         # Process, passing session_id to include conversational history in context
         result = rag_pipeline.process_query(request.query, request.top_k, session_id=request.session_id)
-        # print('here is the response =====', result)
+        
         # Persist chat messages if database available
         try:
             if hasattr(rag_pipeline, 'vector_store') and hasattr(rag_pipeline.vector_store, 'save_chat_message'):
@@ -370,6 +403,7 @@ async def process_query(request: QueryRequest):
                     rag_pipeline.vector_store.save_chat_message(request.session_id, 'ai', answer_text)
         except Exception as persist_err:
             logger.warning(f"Failed to save chat history: {persist_err}")
+        
         return JSONResponse(content=result)
         
     except Exception as e:
@@ -775,6 +809,14 @@ async def weblink_endpoint(request: Dict[str, Any]):
         if not url:
             raise HTTPException(status_code=400, detail="No URL provided")
 
+        logger.debug(f"Enqueuing Celery task for weblink ingestion")
+        
+        # Check if worker is ready
+        if not check_worker_ready():
+            logger.info("Worker not ready, waiting 2 seconds...")
+            import time
+            time.sleep(2)
+        
         task = celery_app.send_task(
             "app.tasks.weblink_ingestion_task",
             args=[url, depth, max_workers, batch_size, use_proxy, proxy_list]
@@ -832,7 +874,6 @@ async def test_llm():
     """Test LLM connection and functionality."""
     try:
         result = rag_pipeline.test_llm_connection()
-        print(result)
         return LLMTestResponse(**result)
         
     except Exception as e:

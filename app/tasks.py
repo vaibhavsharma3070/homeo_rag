@@ -58,7 +58,15 @@ def safe_task_wrapper(func):
     return wrapper
 
 
-@shared_task(bind=True, name="app.tasks.ingest_documents_task", acks_late=True, reject_on_worker_lost=True)
+@shared_task(
+    bind=True, 
+    name="app.tasks.ingest_documents_task", 
+    acks_late=True, 
+    reject_on_worker_lost=True,
+    autoretry_for=(Exception,),
+    retry_kwargs={'max_retries': 3, 'countdown': 2},
+    retry_backoff=True
+)
 def ingest_documents_task(self, file_paths: List[str], max_workers: int = 4, batch_size: int = 100) -> Dict[str, Any]:
     """Background ingestion with progress updates."""
     task_id = self.request.id
@@ -241,51 +249,34 @@ def ingest_documents_task(self, file_paths: List[str], max_workers: int = 4, bat
         return result
         
     except Exception as e:
-        import json
-        
-        # Ensure all error information is JSON-serializable
-        error_msg = str(e)
-        error_type = type(e).__name__
-        error_traceback = traceback.format_exc()
-        
-        # Limit traceback size and ensure it's a string
-        traceback_str = error_traceback[:1000] if error_traceback else ""
-        
-        logger.error("=" * 100)
-        logger.error(f"TASK FAILED: {task_id}")
-        logger.error(f"Error Type: {error_type}")
-        logger.error(f"Error Message: {error_msg}")
-        logger.error(f"Full Traceback:\n{error_traceback}")
-        logger.error("=" * 100)
-        
-        # Create a safe, JSON-serializable error result
-        error_result = {
-            'success': False,
-            'message': f'Ingestion failed: {error_msg}',
-            'error': error_msg,
-            'error_type': error_type,
-            'progress': 100,
-            'task_id': task_id
-        }
-        
-        # Try to update state, but don't fail if it can't be stored
-        try:
-            safe_meta = {
+            error_msg = str(e)
+            error_type = type(e).__name__
+            
+            logger.error("=" * 100)
+            logger.error(f"TASK FAILED: {task_id}")
+            logger.error(f"Error: {error_msg}")
+            logger.error(f"Traceback: {traceback.format_exc()}")
+            logger.error("=" * 100)
+            
+            # Return simple error dict - don't try to update state on failure
+            return {
+                'success': False,
+                'message': f'Ingestion failed: {error_msg}',
                 'error': error_msg,
-                'error_type': error_type,
-                'traceback': traceback_str,
+                'progress': 100,
                 'task_id': task_id
             }
-            json.dumps(safe_meta)  # Verify it's serializable
-            self.update_state(state=states.FAILURE, meta=safe_meta)
-            logger.info(f"Task {task_id}: Error state updated")
-        except (TypeError, ValueError, Exception) as state_error:
-            logger.error(f"Task {task_id}: Failed to update task state (non-critical): {state_error}")
-        
-        return error_result
 
 
-@shared_task(bind=True, name="app.tasks.weblink_ingestion_task", acks_late=True, reject_on_worker_lost=True)
+@shared_task(
+    bind=True, 
+    name="app.tasks.weblink_ingestion_task", 
+    acks_late=True, 
+    reject_on_worker_lost=True,
+    autoretry_for=(Exception,),
+    retry_kwargs={'max_retries': 3, 'countdown': 2},
+    retry_backoff=True
+)
 def weblink_ingestion_task(self, url: str, depth: int = 1, max_workers: int = 4, batch_size: int = 100, use_proxy: bool = False, proxy_list: List[str] = None) -> Dict[str, Any]:
     """Scrape a URL (optionally following internal links), process content, and index in background."""
     task_id = self.request.id
