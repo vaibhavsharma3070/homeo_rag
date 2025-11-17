@@ -303,52 +303,72 @@ class DocumentProcessor:
         return document_info
     
     def _process_xlsx(self, xlsx_path: Path) -> Dict[str, Any]:
-        rows = self.extract_data_from_xlsx(xlsx_path)
-        
-        if not rows:
-            logger.warning(f"No rows extracted from {xlsx_path.name}")
+        import pandas as pd
+
+        try:
+            sheet_dict = pd.read_excel(xlsx_path, sheet_name=None)
+        except Exception as e:
+            logger.error(f"Error reading xlsx {xlsx_path.name}: {e}")
             return None
 
-        chunks = []
-        skipped_rows = []
+        all_sheet_results = {}
+        all_chunks = []   # 🔥 Combine chunks from all sheets
 
-        BATCH_SIZE = 5
-        batch = []
+        for sheet_name, df in sheet_dict.items():
+            rows = df.to_dict(orient="records")
 
-        for idx, row in enumerate(rows, start=1):
-            chunk_text = self.format_row_as_chunk(row, row_number=idx)
+            if not rows:
+                logger.warning(f"No rows in sheet '{sheet_name}'")
+                continue
 
-            if chunk_text.strip():
-                batch.append(chunk_text)
-            else:
-                skipped_rows.append(idx)
-                logger.warning(f"Skipped empty row {idx}")
+            chunks = []
+            skipped_rows = []
+            BATCH_SIZE = 5
+            batch = []
 
-            # 🔥 When batch reaches 5 rows → make a chunk
-            if len(batch) == BATCH_SIZE:
+            for idx, row in enumerate(rows, start=1):
+                chunk_text = self.format_row_as_chunk(row, row_number=idx)
+
+                if chunk_text.strip():
+                    batch.append(chunk_text)
+                else:
+                    skipped_rows.append(idx)
+                    logger.warning(f"Skipped empty row {idx} in '{sheet_name}'")
+
+                if len(batch) == BATCH_SIZE:
+                    chunk_block = "\n\n--- RECORD BREAK ---\n\n".join(batch)
+                    chunks.append(chunk_block)
+                    batch = []
+
+            if batch:
                 chunk_block = "\n\n--- RECORD BREAK ---\n\n".join(batch)
                 chunks.append(chunk_block)
-                batch = []  # reset
 
-        # Handle last leftover rows (<5)
-        if batch:
-            chunk_block = "\n\n--- RECORD BREAK ---\n\n".join(batch)
-            chunks.append(chunk_block)
-
-        document_info = {
-            'filename': xlsx_path.name,
-            'file_path': str(xlsx_path),
-            'chunks': chunks,
-            'total_chunks': len(chunks),
-            'metadata': {
-                'total_rows': len(rows),
-                'valid_rows': len(rows) - len(skipped_rows),
-                'skipped_rows': skipped_rows,
-                'chunk_size': BATCH_SIZE,
+            # save per-sheet info
+            all_sheet_results[sheet_name] = {
+                "chunks": chunks,
+                "total_chunks": len(chunks),
+                "skipped_rows": skipped_rows,
+                "total_rows": len(rows),
+                "chunk_size": BATCH_SIZE,
             }
+
+            # 🔥 add to global chunk list
+            all_chunks.extend(chunks)
+
+        # If NO chunks found anywhere → failure
+        if not all_chunks:
+            return None
+
+        return {
+            "filename": xlsx_path.name,
+            "file_path": str(xlsx_path),
+            "chunks": all_chunks,               # 🔥 YOUR pipeline expects this
+            "total_chunks": len(all_chunks),
+            "sheets": all_sheet_results,
+            "total_sheets": len(all_sheet_results),
         }
 
-        return document_info
 
     
     def get_processed_documents(self) -> List[Dict[str, Any]]:
