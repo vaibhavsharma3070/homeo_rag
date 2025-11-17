@@ -5,10 +5,11 @@ import asyncio
 from pathlib import Path
 import time
 from typing import List, Dict, Any, Optional
-from fastapi import FastAPI, HTTPException, UploadFile, File, Form, Depends, BackgroundTasks
+from fastapi import FastAPI, HTTPException, UploadFile, File, Form, Depends, BackgroundTasks, Request
 from fastapi.responses import JSONResponse, FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.base import BaseHTTPMiddleware
 from loguru import logger
 import json
 from datetime import datetime
@@ -103,6 +104,36 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Middleware to handle large file uploads and improve error messages
+class LargeFileUploadMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        try:
+            response = await call_next(request)
+            return response
+        except Exception as e:
+            error_msg = str(e)
+            # Check if it's a request body size error
+            if "request body too large" in error_msg.lower() or "413" in error_msg:
+                logger.error(f"Request body too large: {error_msg}")
+                return JSONResponse(
+                    status_code=413,
+                    content={
+                        "detail": "File upload too large. Please try uploading smaller files or contact the administrator to increase server limits."
+                    }
+                )
+            # Check for connection/timeout errors
+            elif "timeout" in error_msg.lower() or "connection" in error_msg.lower():
+                logger.error(f"Connection/timeout error: {error_msg}")
+                return JSONResponse(
+                    status_code=504,
+                    content={
+                        "detail": "Upload timeout. The file upload took too long. Please try again with smaller files or check your network connection."
+                    }
+                )
+            raise
+
+app.add_middleware(LargeFileUploadMiddleware)
 
 # Create static directory if it doesn't exist
 static_dir = Path(__file__).parent / "static"
@@ -265,15 +296,33 @@ async def ingest_documents_async(
             
             dest = upload_path / file.filename
             
-            # Read file content
-            file_content = await file.read()
-            
-            # Save to disk
-            with open(dest, "wb") as buffer:
-                buffer.write(file_content)
-            
-            saved_paths.append(str(dest))
-            logger.debug(f"Saved file to: {dest}")
+            # Stream file content to disk instead of reading entire file into memory
+            # This prevents memory issues and connection timeouts for large files
+            try:
+                with open(dest, "wb") as buffer:
+                    # Read file in chunks to avoid memory issues
+                    chunk_size = 1024 * 1024  # 1MB chunks
+                    while True:
+                        chunk = await file.read(chunk_size)
+                        if not chunk:
+                            break
+                        buffer.write(chunk)
+                
+                saved_paths.append(str(dest))
+                file_size = dest.stat().st_size
+                logger.info(f"Saved file {file.filename} ({file_size / (1024*1024):.2f} MB) to: {dest}")
+            except Exception as save_error:
+                logger.error(f"Error saving file {file.filename}: {save_error}")
+                # Clean up partial file if it exists
+                if dest.exists():
+                    try:
+                        dest.unlink()
+                    except:
+                        pass
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Failed to save file {file.filename}: {str(save_error)}"
+                )
 
         logger.debug(f"Enqueuing Celery task for {len(saved_paths)} file(s)")
         

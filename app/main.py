@@ -14,5 +14,10 @@ if __name__ == "__main__":
         host=settings.api_host,
         port=settings.api_port,
         reload=settings.debug,
-        log_level=settings.log_level.lower()
+        log_level=settings.log_level.lower(),
+        timeout_keep_alive=300,  # Keep connections alive for 5 minutes
+        timeout_graceful_shutdown=30,  # Graceful shutdown timeout
+        limit_concurrency=1000,  # Max concurrent connections
+        limit_max_requests=10000,  # Max requests before restart
+        backlog=2048  # Connection backlog
     )

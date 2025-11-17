@@ -105,7 +105,12 @@ def start_server(host=None, port=None, reload=None):
             host=host,
             port=port,
             reload=reload,
-            log_level=settings.log_level.lower()
+            log_level=settings.log_level.lower(),
+            timeout_keep_alive=300,  # Keep connections alive for 5 minutes
+            timeout_graceful_shutdown=30,  # Graceful shutdown timeout
+            limit_concurrency=1000,  # Max concurrent connections
+            limit_max_requests=10000,  # Max requests before restart
+            backlog=2048  # Connection backlog
         )
     except KeyboardInterrupt:
         logger.info("Server stopped by user")
