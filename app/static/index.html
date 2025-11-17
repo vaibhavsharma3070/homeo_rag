@@ -841,6 +841,7 @@
 
     <script>
         const API_BASE = window.location.origin;
+        console.log('API_BASE =====> ',API_BASE)
         let selectedFiles = [];
         let uploadedDocsIndex = new Map(); // filename -> { total_chunks, file_size }
 
@@ -1114,6 +1115,7 @@
             let jobId = null;
             try {
                 const res = await fetch(`${API_BASE}/api/ingest/async`, { method: 'POST', body: formData });
+                console.log('res ====> ',res)
                 const result = await res.json();
                 if (!res.ok) throw new Error(result.detail || 'Failed to start background ingestion');
                 jobId = result.job_id;
