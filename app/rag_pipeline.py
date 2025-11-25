@@ -93,30 +93,52 @@ class RAGPipeline:
             logger.info("🤖 Step 1: Attempting intelligent agent search...")
             agent_result = self.vector_store.search_with_agent(query, history=history_list)
             
+            # Check if agent result is actually useful
             if agent_result:
-                logger.info("✓ Agent successfully answered the query")
+                # Reject agent result if it's a "not found" message
+                rejection_phrases = [
+                    "couldn't find any information",
+                    "don't have information",
+                    "no information found",
+                    "no results found",
+                    "not available in the knowledge base",
+                    "no relevant information",
+                    "i don't have specific information"
+                ]
                 
-                return self._create_response(
-                    query, 
-                    agent_result, 
-                    [agent_result[:500]], 
-                    [{
-                        'filename': 'Knowledge Base',
-                        'document_id': 0,
-                        'relevance_score': 0.95,
-                        'preview': agent_result[:100] + "...",
-                        'metadata': {'search_method': 'database_agent'}
-                    }], 
-                    'high', 
-                    {
-                        'total_sources': 1,
-                        'avg_relevance_score': 0.95,
-                        'search_method': 'agent',
-                        'llm_provider': 'Gemini-Agent'
-                    }
-                )
+                agent_result_lower = agent_result.lower().strip()
+                is_rejection = any(phrase in agent_result_lower for phrase in rejection_phrases)
+                
+                # Also check if result is too short (likely an error/rejection)
+                is_too_short = len(agent_result_lower) < 100
+                
+                if is_rejection or is_too_short:
+                    logger.warning(f"⚠️ Agent returned insufficient result (rejection={is_rejection}, too_short={is_too_short})")
+                    agent_result = None  # Force fallback
+                else:
+                    logger.info("✓ Agent successfully answered the query")
+                    
+                    return self._create_response(
+                        query, 
+                        agent_result, 
+                        [agent_result[:500]], 
+                        [{
+                            'filename': 'Knowledge Base',
+                            'document_id': 0,
+                            'relevance_score': 0.95,
+                            'preview': agent_result[:100] + "...",
+                            'metadata': {'search_method': 'database_agent'}
+                        }], 
+                        'high', 
+                        {
+                            'total_sources': 1,
+                            'avg_relevance_score': 0.95,
+                            'search_method': 'agent',
+                            'llm_provider': 'Gemini-Agent'
+                        }
+                    )
             
-            # STEP 2: FALLBACK TO VECTOR SEARCH
+            # STEP 2: AGENT FAILED - FALLBACK TO VECTOR SEARCH
             logger.info("⚠️ Agent couldn't answer - falling back to vector search...")
             
             search_results = self.vector_store.search(query, top_k=top_k)
