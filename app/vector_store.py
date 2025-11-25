@@ -398,7 +398,10 @@ class PGVectorStore:
         try:
             from app.agent import run_agent
             logger.info(f"Attempting agent search for: '{query}'")
+            print('query =========================================== ',query)
+            print('history =========================================== ',history)
             result = run_agent(query, history=history or [], max_iterations=5)
+            print('vector result =========================================== ',result)
             
             # Check if result exists and is valid
             if not result:

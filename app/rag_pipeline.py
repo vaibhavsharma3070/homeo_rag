@@ -91,95 +91,137 @@ class RAGPipeline:
             
             # STEP 1: TRY AGENT FIRST with history context
             logger.info("🤖 Step 1: Attempting intelligent agent search...")
-            agent_result = self.vector_store.search_with_agent(query, history=history_list)
+            agent_result = None
+            agent_failed = False
             
-            # Check if agent result is actually useful
-            if agent_result:
-                # Reject agent result if it's a "not found" message
-                rejection_phrases = [
-                    "couldn't find any information",
-                    "don't have information",
-                    "no information found",
-                    "no results found",
-                    "not available in the knowledge base",
-                    "no relevant information",
-                    "i don't have specific information"
-                ]
+            try:
+                agent_result = self.vector_store.search_with_agent(query, history=history_list)
                 
-                agent_result_lower = agent_result.lower().strip()
-                is_rejection = any(phrase in agent_result_lower for phrase in rejection_phrases)
-                
-                # Also check if result is too short (likely an error/rejection)
-                is_too_short = len(agent_result_lower) < 100
-                
-                if is_rejection or is_too_short:
-                    logger.warning(f"⚠️ Agent returned insufficient result (rejection={is_rejection}, too_short={is_too_short})")
-                    agent_result = None  # Force fallback
-                else:
-                    logger.info("✓ Agent successfully answered the query")
+                # Check if agent result is actually useful
+                if agent_result:
+                    agent_result_lower = agent_result.lower().strip()
                     
+                    # Rejection phrases - agent couldn't find information
+                    rejection_phrases = [
+                        "couldn't find",
+                        "don't have",
+                        "do not have",
+                        "don't know",
+                        "no information",
+                        "no results",
+                        "not available",
+                        "no relevant",
+                        "no specific",
+                        "no data",
+                        "unable to find",
+                        "cannot find"
+                    ]
+                    
+                    # Check if ANY rejection phrase exists in the response
+                    is_rejection = any(phrase in agent_result_lower for phrase in rejection_phrases)
+                    
+                    # Also check if result is too short (likely an error/rejection)
+                    is_too_short = len(agent_result_lower) < 15
+                    
+                    if is_rejection or is_too_short:
+                        logger.warning(f"⚠️ Agent returned insufficient result (rejection={is_rejection}, too_short={is_too_short})")
+                        logger.warning(f"Agent response preview: '{agent_result[:100]}'")
+                        agent_result = None  # Force fallback
+                        agent_failed = True
+                    else:
+                        logger.info("✅ Agent successfully answered the query")
+                        
+                        return self._create_response(
+                            query, 
+                            agent_result, 
+                            [agent_result[:500]], 
+                            [{
+                                'filename': 'Knowledge Base',
+                                'document_id': 0,
+                                'relevance_score': 0.95,
+                                'preview': agent_result[:100] + "...",
+                                'metadata': {'search_method': 'database_agent'}
+                            }], 
+                            'high', 
+                            {
+                                'total_sources': 1,
+                                'avg_relevance_score': 0.95,
+                                'search_method': 'agent',
+                                'llm_provider': 'Gemini-Agent'
+                            }
+                        )
+                else:
+                    logger.warning("⚠️ Agent returned None/empty result")
+                    agent_failed = True
+                    
+            except Exception as e:
+                logger.error(f"❌ Agent search failed with exception: {e}")
+                agent_result = None
+                agent_failed = True
+            
+            # STEP 2: AGENT FAILED OR RETURNED INSUFFICIENT RESULT - FALLBACK TO VECTOR SEARCH
+            logger.info("📊 Step 2: Agent couldn't answer - falling back to vector search...")
+            
+            try:
+                search_results = self.vector_store.search(query, top_k=top_k)
+                filtered = [r for r in search_results if r['score'] >= min_score]
+                logger.info(f"✓ Vector search returned {len(filtered)} results (min_score={min_score})")
+
+                if not filtered:
+                    logger.warning("❌ No results from both agent and vector search")
                     return self._create_response(
                         query, 
-                        agent_result, 
-                        [agent_result[:500]], 
-                        [{
-                            'filename': 'Knowledge Base',
-                            'document_id': 0,
-                            'relevance_score': 0.95,
-                            'preview': agent_result[:100] + "...",
-                            'metadata': {'search_method': 'database_agent'}
-                        }], 
-                        'high', 
-                        {
-                            'total_sources': 1,
-                            'avg_relevance_score': 0.95,
-                            'search_method': 'agent',
-                            'llm_provider': 'Gemini-Agent'
+                        "I don't have specific information about that in my knowledge base.",
+                        [], [], 'low', {
+                            'total_sources': 0, 
+                            'search_method': 'none',
+                            'agent_attempted': True,
+                            'agent_failed': agent_failed,
+                            'vector_attempted': True
                         }
                     )
-            
-            # STEP 2: AGENT FAILED - FALLBACK TO VECTOR SEARCH
-            logger.info("⚠️ Agent couldn't answer - falling back to vector search...")
-            
-            search_results = self.vector_store.search(query, top_k=top_k)
-            filtered = [r for r in search_results if r['score'] >= min_score]
-            logger.info(f"📊 Vector search returned {len(filtered)} results (min_score={min_score})")
 
-            if not filtered:
-                logger.warning("❌ No results from both agent and vector search")
+                # STEP 3: GENERATE ANSWER FROM VECTOR SEARCH RESULTS
+                logger.info("✓ Using vector search results to generate answer")
+                context_chunks = self._prepare_context(filtered)
+                sources = self._create_sources(filtered)
+                answer = self._generate_response(query, context_chunks, history_text)
+
+                avg_score = sum(r['score'] for r in filtered) / len(filtered)
+                confidence = self._calculate_confidence(avg_score)
+                metadata = {
+                    'total_sources': len(sources),
+                    'avg_relevance_score': round(avg_score, 4),
+                    'search_method': 'vector_fallback',
+                    'llm_provider': self.llm_connector.__class__.__name__,
+                    'agent_attempted': True,
+                    'agent_failed': agent_failed
+                }
+
+                return self._create_response(query, answer, context_chunks, sources, confidence, metadata)
+                
+            except Exception as vector_error:
+                logger.error(f"❌ Vector search also failed: {vector_error}")
                 return self._create_response(
                     query, 
-                    "I don't have specific information about that in my knowledge base.",
-                    [], [], 'low', {
-                        'total_sources': 0, 
-                        'search_method': 'none',
+                    "I encountered an error while searching the knowledge base. Please try again.",
+                    [], [], 'error', {
+                        'error': str(vector_error),
                         'agent_attempted': True,
-                        'vector_attempted': True
+                        'agent_failed': agent_failed,
+                        'vector_attempted': True,
+                        'vector_failed': True
                     }
                 )
 
-            # STEP 3: GENERATE ANSWER FROM VECTOR SEARCH RESULTS
-            logger.info("✓ Using vector search results to generate answer")
-            context_chunks = self._prepare_context(filtered)
-            sources = self._create_sources(filtered)
-            answer = self._generate_response(query, context_chunks, history_text)
-
-            avg_score = sum(r['score'] for r in filtered) / len(filtered)
-            confidence = self._calculate_confidence(avg_score)
-            metadata = {
-                'total_sources': len(sources),
-                'avg_relevance_score': round(avg_score, 4),
-                'search_method': 'vector_fallback',
-                'llm_provider': self.llm_connector.__class__.__name__,
-                'agent_attempted': True,
-                'agent_failed': True
-            }
-
-            return self._create_response(query, answer, context_chunks, sources, confidence, metadata)
-
         except Exception as e:
             logger.error(f"Error processing query: {e}", exc_info=True)
-            return self._create_response(query, f"An error occurred: {str(e)}", [], [], 'error', {'error': str(e)})
+            return self._create_response(
+                query, 
+                f"An error occurred: {str(e)}", 
+                [], [], 'error', 
+                {'error': str(e)}
+            )
 
     def _prepare_context(self, results: List[Dict[str, Any]], max_chunks: int = 10) -> List[str]:
         """Extract unique context chunks from search results."""

@@ -117,8 +117,7 @@ def _build_sql_with_ai(user_question: str, data_analysis: Dict[str, Any], histor
     if history:
         history_context = "\n".join([f"{h['role'].upper()}: {h['message']}" for h in history[-3:]])
         
-        # Check if question has pronouns
-        pronoun_pattern = r'\b(he|she|him|her|his|hers|it|its|they|them|their|that|this)\b'
+        pronoun_pattern = r'\b(he|she|him|her|his|hers|it|its|they|them|their|that|this|also|too)\b'
         if re.search(pronoun_pattern, user_question.lower()):
             try:
                 resolve_prompt = f"""Given this conversation history:
@@ -126,61 +125,60 @@ def _build_sql_with_ai(user_question: str, data_analysis: Dict[str, Any], histor
 
 Current question: {user_question}
 
-Rewrite the question to be self-contained by replacing pronouns with the actual subject from history.
+The question contains pronouns or reference words (he/she/it/also/too/etc).
+Rewrite it to be self-contained by replacing references with the actual subject from history.
 Return ONLY the rewritten question, nothing else.
+
+Example:
+History: "USER: who is H001"
+Question: "what is his contact number"
+Rewritten: "what is the contact number of H001"
 
 Rewritten question:"""
                 
                 resolve_response = model.invoke([HumanMessage(content=resolve_prompt)])
                 resolved_question = resolve_response.content.strip()
-                logger.info(f"Resolved question: '{user_question}' -> '{resolved_question}'")
+                print(f"🔄 Resolved: '{user_question}' -> '{resolved_question}'")
             except Exception as e:
-                logger.warning(f"Pronoun resolution failed: {e}")
+                print(f"⚠️ Pronoun resolution failed: {e}")
     
     system_prompt = f"""You are an expert SQL query builder for PostgreSQL table '{TABLE_NAME}'.
 
-    TABLE STRUCTURE:
-    - id: UUID
-    - collection_id: UUID  
-    - document: TEXT (actual content - may contain MULTIPLE records separated by '--- RECORD BREAK ---')
-    - cmetadata: JSONB (metadata: filename, Patient ID, Record Number, etc.)
+TABLE STRUCTURE:
+- id: UUID
+- collection_id: UUID  
+- document: TEXT (actual content - may contain MULTIPLE records separated by '--- RECORD BREAK ---')
+- cmetadata: JSONB (metadata: filename, Patient ID, Record Number, etc.)
 
-    CRITICAL: Each document may contain MULTIPLE patient records separated by '--- RECORD BREAK ---'
+DATA ANALYSIS:
+Total records: {data_analysis['total_records']}
+Common fields: {', '.join(data_analysis['common_fields'])}
 
-    DATA ANALYSIS:
-    Total records: {data_analysis['total_records']}
-    Common fields: {', '.join(data_analysis['common_fields'])}
+QUERY BUILDING RULES:
+1. Output ONLY valid JSON: {{"sql": "...", "params": [...], "reasoning": "..."}}
+2. Use %s placeholders for parameters
+3. Search strategy:
+   - For patient IDs (H001, H002): Search ONLY for the ID
+     WHERE document ILIKE %s OR cmetadata::text ILIKE %s
+     params: ["%H001%", "%H001%"]
+   
+   - For names: Search for each name part
+     WHERE (document ILIKE %s OR cmetadata::text ILIKE %s) 
+     AND (document ILIKE %s OR cmetadata::text ILIKE %s)
+     params: ["%john%", "%john%", "%doe%", "%doe%"]
 
-    QUERY BUILDING RULES:
-    1. Output ONLY valid JSON: {{"sql": "...", "params": [...], "reasoning": "..."}}
-    2. Use %s placeholders for parameters
-    3. NEVER assume data that isn't explicitly mentioned in the question
-    4. Search strategy:
-       - For patient IDs (H001, H002): Search ONLY for the ID
-         WHERE document ILIKE %s OR cmetadata::text ILIKE %s
-         params: ["%H001%", "%H001%"]
-       
-       - For "name of H001" type questions: Search ONLY for H001, NOT for names
-         WHERE document ILIKE %s OR cmetadata::text ILIKE %s
-         params: ["%H001%", "%H001%"]
-       
-       - For explicit names (e.g., "find John Doe"): 
-         WHERE (document ILIKE %s OR cmetadata::text ILIKE %s) 
-         AND (document ILIKE %s OR cmetadata::text ILIKE %s)
-         params: ["%john%", "%john%", "%doe%", "%doe%"]
-    
-    5. Return ALL documents that MIGHT contain the match (we filter later)
-    6. Order by: (cmetadata->>'created_at')::bigint DESC NULLS LAST
-    7. Include LIMIT (default 100)
-    8. ONLY SELECT queries - no INSERT/UPDATE/DELETE/DROP/CREATE/ALTER/TRUNCATE
+4. Return ALL documents that MIGHT contain the match (we filter later)
+5. Order by: (cmetadata->>'created_at')::bigint DESC NULLS LAST
+6. Include LIMIT (default 100)
+7. ONLY SELECT queries
 
-    IMPORTANT: Don't add search terms that aren't in the question. If asked about "H001", search ONLY for "H001", not for names.
+IMPORTANT: Search for terms explicitly in the question. Don't add extra search terms.
 
-    OUTPUT: Pure JSON only, no markdown."""
+OUTPUT: Pure JSON only, no markdown."""
 
     human_prompt = f"""Question: {resolved_question}
 
-Build an SQL query. Remember: ONLY search for terms explicitly mentioned in the question.
+Build an SQL query to find this information.
 
 JSON:"""
 
@@ -191,9 +189,7 @@ JSON:"""
 
     try:
         response = model.invoke(messages)
-        print('response =========================================== ',response)
         response_text = response.content.strip()
-        print('response_text =========================================== ',response_text)
         
         # Extract JSON
         json_match = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', response_text, flags=re.DOTALL)
@@ -218,10 +214,10 @@ JSON:"""
             raise ValueError("Only SELECT allowed")
         
         # Safety checks
-        forbidden = ['DROP', 'DELETE', 'UPDATE', 'INSERT', 'TRUNCATE', 'ALTER', 'CREATE']
-        for keyword in forbidden:
-            if keyword in sql_upper:
-                raise ValueError(f"Forbidden keyword detected: {keyword}")
+        # forbidden = ['DROP', 'DELETE', 'UPDATE', 'INSERT', 'TRUNCATE', 'ALTER', 'CREATE']
+        # for keyword in forbidden:
+        #     if keyword in sql_upper:
+        #         raise ValueError(f"Forbidden keyword detected: {keyword}")
         
         if 'LIMIT' not in sql_upper:
             sql = sql.strip().rstrip(';') + ' LIMIT 100'
@@ -294,11 +290,11 @@ def _simple_fallback_query(user_question: str) -> Tuple[str, List[Any], Dict[str
 # Format Results for User
 # ----------------------
 def _format_results(rows: List[Dict], sql: str, params: List, debug: Dict, user_question: str) -> str:
-    """Format query results - extract and return ONLY the relevant records."""
+    """Format query results - return RAW data for LLM to process."""
     if not rows:
-        return "I couldn't find any information about that in the knowledge base."
+        return "NO_RESULTS_FOUND"
     
-    # Extract search terms from question to filter results
+    # Extract search terms from question
     search_terms = []
     
     # Extract patient IDs (H001, H002, etc.)
@@ -307,7 +303,6 @@ def _format_results(rows: List[Dict], sql: str, params: List, debug: Dict, user_
         search_terms.extend([pid.upper() for pid in patient_id_matches])
     
     # Extract names (John Doe, etc.)
-    # Remove common question words first
     question_words = ['what', 'who', 'where', 'when', 'how', 'tell', 'about', 'give', 'show', 'find', 'details', 'information', 'is', 'are', 'the', 'a', 'an', 'me', 'for', 'of']
     words = user_question.lower().split()
     name_parts = [w.strip('?,.:;!').title() for w in words if w.lower() not in question_words and len(w) > 2 and not re.match(r'^h\d+$', w.lower())]
@@ -326,7 +321,6 @@ def _format_results(rows: List[Dict], sql: str, params: List, debug: Dict, user_
         if '--- RECORD BREAK ---' in doc:
             records = doc.split('--- RECORD BREAK ---')
         else:
-            # Single record
             records = [doc]
         
         # Check each record
@@ -338,22 +332,18 @@ def _format_results(rows: List[Dict], sql: str, params: List, debug: Dict, user_
             # If search terms exist, check if this record matches
             if search_terms:
                 record_upper = record.upper()
-                # Check if ALL search terms are in this specific record (for names)
-                # OR if ANY patient ID matches (for IDs)
                 
                 patient_ids_in_record = [pid for pid in search_terms if re.match(r'^H\d+$', pid)]
                 names_in_record = [name for name in search_terms if not re.match(r'^H\d+$', name)]
                 
                 matches = False
                 
-                # If patient ID searched, match exactly
                 if patient_ids_in_record:
                     for pid in patient_ids_in_record:
                         if f"Patient ID: {pid}" in record or f"patient_id: {pid.lower()}" in record.lower():
                             matches = True
                             break
                 
-                # If name searched, all parts must be present
                 elif names_in_record:
                     if all(name.upper() in record_upper for name in names_in_record):
                         matches = True
@@ -361,57 +351,15 @@ def _format_results(rows: List[Dict], sql: str, params: List, debug: Dict, user_
                 if not matches:
                     continue
             
-            # Extract key information from the record
-            lines = record.split('\n')
-            record_data = {}
-            
-            for line in lines:
-                line = line.strip()
-                if ':' in line:
-                    key, value = line.split(':', 1)
-                    key = key.strip()
-                    value = value.strip()
-                    record_data[key] = value
-            
-            # Build a clean summary
-            summary_parts = []
-            
-            # Add key fields
-            priority_fields = ['Record Number', 'Patient ID', 'Name', 'Age', 'Gender', 'Date of Visit', 
-                             'Chief Complaints', 'History of Present Illness', 'Remedy Prescribed', 
-                             'Potency', 'Dosage', 'Follow-up Status']
-            
-            for field in priority_fields:
-                if field in record_data and record_data[field]:
-                    summary_parts.append(f"{field}: {record_data[field]}")
-            
-            # Add other fields (limit to avoid clutter)
-            other_fields = [k for k in record_data.keys() if k not in priority_fields]
-            for field in other_fields[:5]:  # Limit to 5 additional fields
-                if record_data[field]:
-                    summary_parts.append(f"{field}: {record_data[field]}")
-            
-            if summary_parts:
-                matching_records.append('\n'.join(summary_parts))
+            # Add the raw record
+            matching_records.append(record)
     
-    # Return results
+    # Return RAW data for LLM to process
     if not matching_records:
-        return "I couldn't find any information about that in the knowledge base."
+        return "NO_RESULTS_FOUND"
     
-    total = len(matching_records)
-    
-    if total == 1:
-        return f"Here's what I found:\n\n{matching_records[0]}"
-    else:
-        # Multiple matches - show them numbered
-        result_parts = [f"I found {total} matching record(s):\n"]
-        for idx, record in enumerate(matching_records[:5], 1):  # Show max 5
-            result_parts.append(f"\n{idx}. {record}")
-        
-        if total > 5:
-            result_parts.append(f"\n\n... and {total - 5} more records.")
-        
-        return '\n'.join(result_parts)
+    # Return records separated by delimiter
+    return "\n\n=== RECORD ===\n\n".join(matching_records)
 
 # ----------------------
 # Main Tool: query_knowledge_base
@@ -479,74 +427,111 @@ def run_agent(user_input: str, history: List[Dict[str, str]] = None, max_iterati
     
     system_content = """You are a helpful medical records assistant with access to a patient database.
 
-    CRITICAL RULES:
-    1. ALWAYS use the query_knowledge_base tool to search
-    2. The tool returns FILTERED results - only the specific records requested
-    3. Give direct, natural answers
-    4. Do NOT mention: chunks, files, documents, sources, databases, metadata, records, or technical terms
-    5. If user asks about a patient ID (like H010), only talk about THAT patient
-    6. If multiple records match, present them clearly
-    7. Check conversation history for pronoun references (he/she/it)
+CRITICAL RULES:
+1. ALWAYS use the query_knowledge_base tool to search for information
+2. The tool returns RAW patient records - you must extract and present the relevant information
+3. Check conversation history for context (pronouns like "he/she/also/too" refer to previous subjects)
+4. Give direct, natural answers in a conversational tone
+5. Present information as if you're reading from patient files
+6. If multiple records match, mention the most relevant one or ask for clarification
+7. If tool returns "NO_RESULTS_FOUND", say you don't have that information
 
-    When the tool returns "I found X matching record(s)", trust that it filtered correctly.
-    Present the information naturally without technical details."""
+OUTPUT FORMAT:
+- For simple queries (name, contact, address): Give direct answer
+  Example: "The contact number is +1-555-678-1234."
+  
+- For detailed queries (patient info): Give a brief summary
+  Example: "John Doe is a 34-year-old male engineer who visited on November 3, 2025..."
+
+- Never say: "I found X records", "According to the database", "The search returned"
+- Never return empty responses - always provide an answer based on tool results
+
+**IMPORTANT: After receiving tool results, you MUST provide a natural language answer. Never return empty response.**"""
 
     if history_context:
-        system_content += f"\n\nRecent conversation:\n{history_context}"
+        system_content += f"\n\nRecent conversation:\n{history_context}\n\nUse this context to understand pronouns and references."
     
     messages = [
         SystemMessage(content=system_content),
         HumanMessage(content=user_input)
     ]
 
-    # Pass history to data analysis
     data_analysis = None
     
     for iteration in range(max_iterations):
+        print(f"\n{'='*60}")
+        print(f"🔄 ITERATION {iteration + 1}/{max_iterations}")
+        print(f"{'='*60}\n")
+        
         response = model_with_tools.invoke(messages)
+        print(f'📨 Model response type: {type(response)}')
+        print(f'📨 Has tool_calls: {hasattr(response, "tool_calls") and bool(response.tool_calls)}')
+        print(f'📨 Response content length: {len(response.content) if response.content else 0}')
+        
         messages.append(response)
 
         if hasattr(response, 'tool_calls') and response.tool_calls:
+            print(f"🔧 Model requested {len(response.tool_calls)} tool call(s)")
+            
             for call in response.tool_calls:
                 if call['name'] == 'query_knowledge_base':
                     print(f"\n🔍 Searching knowledge base with: {call['args'].get('user_question')}\n")
                     
-                    # Get data analysis with history context
                     try:
                         conn = psycopg2.connect(**DB_PARAMS, cursor_factory=RealDictCursor)
                         cursor = conn.cursor()
                         if not data_analysis:
                             data_analysis = _analyze_data_structure(cursor)
                         
-                        # Build query with history
                         sql, params, debug = _build_sql_with_ai(
                             call['args'].get('user_question'), 
                             data_analysis,
                             history=history
                         )
-                        
+                        print('sql ===========================================', sql)
+                        print('params ===========================================', params)
+
                         cursor.execute(sql, params)
                         rows = cursor.fetchall()
                         
-                        # Format results with filtering
                         tool_result = _format_results(rows, sql, params, debug, call['args'].get('user_question'))
-                        
+                        print('tool_result ===========================================', tool_result[:500])
+
                         cursor.close()
                         conn.close()
                     except Exception as e:
-                        logger.error(f"Database query error: {e}")
-                        tool_result = f"I encountered an error while searching: {str(e)}"
+                        print(f"❌ Database query error: {e}")
+                        tool_result = "NO_RESULTS_FOUND"
                     
                     print(f"\n📦 Tool Result Preview:\n{tool_result[:300]}...\n")
                     
                     messages.append(
                         ToolMessage(content=str(tool_result), tool_call_id=call['id'])
                     )
+                    print("🔄 Tool result added to conversation. Requesting final answer from LLM...\n")
+            
+            continue
+                    
         else:
-            # Final answer
+            # No tool calls - this is the final answer
+            print('\n✅ Final answer received from model')
+            print(f'📝 Response content: "{response.content[:200]}..."')
+            
+            if not response.content or response.content.strip() == "":
+                print("⚠️ WARNING: LLM returned empty content - using fallback")
+                # Check if we have tool results in message history
+                for msg in reversed(messages):
+                    if isinstance(msg, ToolMessage) and msg.content != "NO_RESULTS_FOUND":
+                        # Extract first few lines as fallback
+                        lines = msg.content.split('\n')[:5]
+                        return "Based on the records: " + ' '.join(lines)
+                return "I couldn't generate a proper response from the data found."
+            
+            print(f"✅ Returning final answer ({len(response.content)} chars)")
             return response.content
 
-    return "I couldn't find a complete answer to your question."
+    print("\n⚠️ Max iterations reached without final answer")
+    return "I couldn't find a complete answer after multiple attempts."
 
 # ----------------------
 # Main Execution
