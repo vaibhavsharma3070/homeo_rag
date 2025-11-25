@@ -244,6 +244,7 @@ class RAGPipeline:
 - ONLY use information from the Knowledge Base and Recent Conversation above
 - Do NOT use external knowledge or make assumptions
 - If user will gave you the their name you can use their name in the response as for example: "Hello John, how can I help you today?"
+- please don't add I found 6 records related to "xyz" this kind of information in the response.
 
 Answer:""")
         

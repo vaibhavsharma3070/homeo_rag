@@ -154,30 +154,33 @@ Rewritten question:"""
     QUERY BUILDING RULES:
     1. Output ONLY valid JSON: {{"sql": "...", "params": [...], "reasoning": "..."}}
     2. Use %s placeholders for parameters
-    3. Search strategy:
-    - For patient IDs (H001, H010): WHERE document ILIKE %s OR cmetadata::text ILIKE %s
-    - For names: Use AND between name parts to avoid false matches
-    - Always search BOTH document AND cmetadata
-    4. **IMPORTANT**: Return ALL documents that MIGHT contain the match (we'll filter records later)
-    5. Use broad search, filtering happens in post-processing
+    3. NEVER assume data that isn't explicitly mentioned in the question
+    4. Search strategy:
+       - For patient IDs (H001, H002): Search ONLY for the ID
+         WHERE document ILIKE %s OR cmetadata::text ILIKE %s
+         params: ["%H001%", "%H001%"]
+       
+       - For "name of H001" type questions: Search ONLY for H001, NOT for names
+         WHERE document ILIKE %s OR cmetadata::text ILIKE %s
+         params: ["%H001%", "%H001%"]
+       
+       - For explicit names (e.g., "find John Doe"): 
+         WHERE (document ILIKE %s OR cmetadata::text ILIKE %s) 
+         AND (document ILIKE %s OR cmetadata::text ILIKE %s)
+         params: ["%john%", "%john%", "%doe%", "%doe%"]
+    
+    5. Return ALL documents that MIGHT contain the match (we filter later)
     6. Order by: (cmetadata->>'created_at')::bigint DESC NULLS LAST
     7. Include LIMIT (default 100)
     8. ONLY SELECT queries - no INSERT/UPDATE/DELETE/DROP/CREATE/ALTER/TRUNCATE
 
-    FOR PATIENT IDs (H001, H010, etc.):
-    - Search: WHERE document ILIKE '%H010%' OR cmetadata::text ILIKE '%H010%'
-    - The post-processor will extract the exact record from multi-record documents
-
-    FOR NAMES (John Doe, etc.):
-    - Split name into parts: ["john", "doe"]
-    - Build: WHERE (document ILIKE '%john%' OR cmetadata::text ILIKE '%john%') 
-            AND (document ILIKE '%doe%' OR cmetadata::text ILIKE '%doe%')
+    IMPORTANT: Don't add search terms that aren't in the question. If asked about "H001", search ONLY for "H001", not for names.
 
     OUTPUT: Pure JSON only, no markdown."""
 
     human_prompt = f"""Question: {resolved_question}
 
-Build an SQL query to find relevant data. Be precise with name matching.
+Build an SQL query. Remember: ONLY search for terms explicitly mentioned in the question.
 
 JSON:"""
 
@@ -188,7 +191,9 @@ JSON:"""
 
     try:
         response = model.invoke(messages)
+        print('response =========================================== ',response)
         response_text = response.content.strip()
+        print('response_text =========================================== ',response_text)
         
         # Extract JSON
         json_match = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', response_text, flags=re.DOTALL)
