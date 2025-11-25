@@ -19,7 +19,7 @@ try:
     # LangChain imports
     from langchain_huggingface import HuggingFaceEmbeddings
     from langchain_postgres import PGVector
-    from langchain.schema import Document as LangChainDocument
+    from langchain_core.documents import Document as LangChainDocument
     
     # PostgreSQL and pgvector
     from sqlalchemy import Column, Integer, String, Text, JSON, create_engine, select, func, text
@@ -393,12 +393,51 @@ class PGVectorStore:
         result = self.add_documents_parallel(documents)
         return result['success']
 
+    def search_with_agent(self, query: str, history: List[Dict[str, str]] = None) -> Optional[str]:
+        """Search using the intelligent agent with conversation history."""
+        try:
+            from app.agent import run_agent
+            logger.info(f"Attempting agent search for: '{query}'")
+            result = run_agent(query, history=history or [], max_iterations=5)
+            
+            # Check if result exists and is valid
+            if not result:
+                logger.info("Agent returned empty result")
+                return None
+            
+            result_lower = result.lower()
+            
+            # Reject if agent couldn't find information
+            rejection_phrases = [
+                "no relevant information",
+                "maximum iterations reached",
+                "max iterations reached",
+                "i don't have specific information",
+                "i don't have information",
+                "could not find",
+                "no information found",
+                "no results found"
+            ]
+            
+            if any(phrase in result_lower for phrase in rejection_phrases):
+                logger.info("Agent search returned insufficient results - will fallback to vector search")
+                return None
+            
+            # Accept the result - it's valid
+            logger.info(f"Agent found relevant information (length: {len(result)})")
+            return result
+            
+        except Exception as e:
+            logger.error(f"Agent search failed: {e}")
+            return None
+
     def search(self, query: str, top_k: int = 20) -> List[Dict[str, Any]]:
         """
-        Search using LangChain's similarity_search_with_score method.
-        """ 
+        Pure vector search using LangChain (NO agent here).
+        This is the fallback method called after agent fails.
+        """
         try:
-            logger.info(f"Searching with LangChain for: '{query}', top_k={top_k}")
+            logger.info(f"🔍 Vector search for: '{query}', top_k={top_k}")
             
             # Use LangChain's similarity search with score
             langchain_results = self.vectorstore.similarity_search_with_score(
@@ -406,8 +445,7 @@ class PGVectorStore:
                 k=top_k
             )
             
-            # logger.info(f"LangChain returned {langchain_results} results")
-            # print('langchain_results =========================================== ',langchain_results)
+            logger.info(f"📊 LangChain returned {len(langchain_results)} results")
             
             # Convert to your format
             results = []
@@ -427,11 +465,10 @@ class PGVectorStore:
                     }
                 })
             
-            print('langchain_results =========================================== ',results)
             return results
             
         except Exception as e:
-            logger.error(f"Error in LangChain similarity search: {e}")
+            logger.error(f"❌ Error in vector search: {e}")
             raise
 
     def get_index_stats(self) -> Dict[str, Any]:

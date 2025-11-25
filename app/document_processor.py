@@ -7,7 +7,7 @@ from pathlib import Path
 from loguru import logger
 from app.config import settings
 import PyPDF2
-from langchain.text_splitter import RecursiveCharacterTextSplitter
+from langchain_text_splitters import RecursiveCharacterTextSplitter
 import pandas as pd
 
 class DocumentProcessor:

@@ -66,72 +66,91 @@ class RAGPipeline:
         session_id: Optional[str] = None, 
         history_turns: int = 4
     ) -> Dict[str, Any]:
-        """
-        Process query with context-aware search.
-        
-        Flow:
-        1. Detect small talk -> bypass KB search
-        2. Load chat history FIRST
-        3. Resolve pronouns using history
-        4. Search KB with resolved query
-        5. Generate response with full context
-        """
+        """Process query with agent-first approach, fallback to vector search."""
         try:
             logger.info(f"Processing query: '{query}'")
 
-            # Handle small talk without KB search
+            # Handle small talk
             if self._is_small_talk(query):
                 logger.info("Small talk detected - bypassing KB")
                 answer = self._generate_small_talk_response(query)
                 return self._create_response(query, answer, [], [], 'high', {'bypass': 'small_talk'})
             
-            # LOAD HISTORY FIRST
+            # Load history
             history_text = ""
+            history_list = []
             if session_id and hasattr(self.vector_store, 'get_chat_history'):
                 try:
                     rows = self.vector_store.get_chat_history(session_id)
                     recent = rows[-history_turns:] if len(rows) > history_turns else rows
                     history_text = "\n".join([f"{r['role'].upper()}: {r['message']}" for r in recent])
+                    history_list = [{"role": r['role'], "message": r['message']} for r in recent]
                     logger.info(f"Loaded {len(recent)} history messages")
                 except Exception as e:
                     logger.warning(f"Failed to load history: {e}")
             
-            # Resolve pronouns AFTER loading history
-            # resolved_query = self.reform_query(query, history_text)
-            # print('resolved_query =========================================== ',resolved_query)
-
-            # Search with resolved query
-            search_results = self.vector_store.search(query, top_k=top_k)
-            logger.info(f"Search returned {len(search_results)} results")
-
-            # Filter by score
-            filtered = [r for r in search_results if r['score'] >= min_score]
-            logger.info(f"After filtering (min_score={min_score}): {len(filtered)} results")
-
-            if not filtered:
-                logger.info("No relevant results found")
+            # STEP 1: TRY AGENT FIRST with history context
+            logger.info("🤖 Step 1: Attempting intelligent agent search...")
+            agent_result = self.vector_store.search_with_agent(query, history=history_list)
+            
+            if agent_result:
+                logger.info("✓ Agent successfully answered the query")
+                
                 return self._create_response(
                     query, 
-                    "I don't have specific information about that. Could you rephrase your question?",
-                    [], [], 'low', {'total_sources': 0}
+                    agent_result, 
+                    [agent_result[:500]], 
+                    [{
+                        'filename': 'Knowledge Base',
+                        'document_id': 0,
+                        'relevance_score': 0.95,
+                        'preview': agent_result[:100] + "...",
+                        'metadata': {'search_method': 'database_agent'}
+                    }], 
+                    'high', 
+                    {
+                        'total_sources': 1,
+                        'avg_relevance_score': 0.95,
+                        'search_method': 'agent',
+                        'llm_provider': 'Gemini-Agent'
+                    }
+                )
+            
+            # STEP 2: FALLBACK TO VECTOR SEARCH
+            logger.info("⚠️ Agent couldn't answer - falling back to vector search...")
+            
+            search_results = self.vector_store.search(query, top_k=top_k)
+            filtered = [r for r in search_results if r['score'] >= min_score]
+            logger.info(f"📊 Vector search returned {len(filtered)} results (min_score={min_score})")
+
+            if not filtered:
+                logger.warning("❌ No results from both agent and vector search")
+                return self._create_response(
+                    query, 
+                    "I don't have specific information about that in my knowledge base.",
+                    [], [], 'low', {
+                        'total_sources': 0, 
+                        'search_method': 'none',
+                        'agent_attempted': True,
+                        'vector_attempted': True
+                    }
                 )
 
-            # Prepare context and sources
+            # STEP 3: GENERATE ANSWER FROM VECTOR SEARCH RESULTS
+            logger.info("✓ Using vector search results to generate answer")
             context_chunks = self._prepare_context(filtered)
             sources = self._create_sources(filtered)
-
-            # Generate response
             answer = self._generate_response(query, context_chunks, history_text)
-            logger.info(f"Generated response: {len(answer)} chars")
 
-            # Calculate metadata
             avg_score = sum(r['score'] for r in filtered) / len(filtered)
             confidence = self._calculate_confidence(avg_score)
             metadata = {
                 'total_sources': len(sources),
                 'avg_relevance_score': round(avg_score, 4),
+                'search_method': 'vector_fallback',
                 'llm_provider': self.llm_connector.__class__.__name__,
-                'query_resolved': False
+                'agent_attempted': True,
+                'agent_failed': True
             }
 
             return self._create_response(query, answer, context_chunks, sources, confidence, metadata)
