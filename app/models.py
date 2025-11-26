@@ -91,9 +91,40 @@ class ChatHistoryResponse(BaseModel):
     messages: List[ChatMessage]
     timestamp: datetime = Field(default_factory=datetime.now)
 
+class ChatSessionInfo(BaseModel):
+    """Information about a chat session."""
+    session_id: str
+    title: str
+    created_at: int
+
+class ChatSessionsListResponse(BaseModel):
+    """Response containing list of all chat sessions."""
+    sessions: List[ChatSessionInfo]
+    total_sessions: int
+    timestamp: datetime = Field(default_factory=datetime.now)
+
 class ErrorResponse(BaseModel):
     """Standard error response model."""
     error: str
     message: str
     timestamp: datetime = Field(default_factory=datetime.now)
     details: Optional[Dict[str, Any]] = None
+
+class LoginRequest(BaseModel):
+    """Request model for user login."""
+    username: str = Field(..., min_length=1, max_length=100, description="Username")
+    password: str = Field(..., min_length=1, description="Password")
+
+class LoginResponse(BaseModel):
+    """Response model for user login."""
+    success: bool
+    message: str
+    token: Optional[str] = None
+    user: Optional[Dict[str, Any]] = None
+    timestamp: datetime = Field(default_factory=datetime.now)
+
+class UserInfo(BaseModel):
+    """User information model."""
+    id: int
+    username: str
+    created_at: int

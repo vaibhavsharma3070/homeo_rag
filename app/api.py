@@ -5,23 +5,26 @@ import asyncio
 from pathlib import Path
 import time
 from typing import List, Dict, Any, Optional
-from fastapi import FastAPI, HTTPException, UploadFile, File, Form, Depends, BackgroundTasks, Request
+from fastapi import FastAPI, HTTPException, UploadFile, File, Form, Depends, BackgroundTasks, Request, Header
 from fastapi.responses import JSONResponse, FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from starlette.middleware.base import BaseHTTPMiddleware
 from loguru import logger
 import json
-from datetime import datetime
+from datetime import datetime, timedelta
 import requests
 from bs4 import BeautifulSoup
 from urllib.parse import urljoin, urlparse
 import re
+from jose import jwt
 
 from app.models import (
     QueryRequest, QueryResponse, SearchRequest, SearchResponse,
     DocumentListResponse, IngestionResponse, StatsResponse, 
-    LLMTestResponse, ErrorResponse, ChatSessionResponse, ChatHistoryResponse, ChatMessage
+    LLMTestResponse, ErrorResponse, ChatSessionResponse, ChatHistoryResponse, ChatMessage,
+    ChatSessionsListResponse, ChatSessionInfo, LoginRequest, LoginResponse, UserInfo
 )
 from app.rag_pipeline import RAGPipeline
 from app.document_processor import DocumentProcessor
@@ -37,6 +40,56 @@ corrupted_tasks_cache = set()
 
 # Worker readiness tracking
 _worker_ready = False
+
+# JWT Security
+security = HTTPBearer(auto_error=False)
+
+def create_access_token(username: str, user_id: int) -> str:
+    """Create JWT access token."""
+    expire = datetime.utcnow() + timedelta(days=30)  # 30 days expiry
+    payload = {
+        "sub": username,
+        "user_id": user_id,
+        "exp": expire
+    }
+    return jwt.encode(payload, settings.secret_key, algorithm="HS256")
+
+def verify_token(token: str) -> Optional[Dict[str, Any]]:
+    """Verify JWT token and return user info."""
+    try:
+        payload = jwt.decode(token, settings.secret_key, algorithms=["HS256"])
+        return payload
+    except jwt.ExpiredSignatureError:
+        return None
+    except jwt.InvalidTokenError:
+        return None
+
+async def get_current_user(credentials: Optional[HTTPAuthorizationCredentials] = Depends(security)) -> Optional[Dict[str, Any]]:
+    """Get current authenticated user from token."""
+    try:
+        if not credentials:
+            return None
+        
+        token = credentials.credentials
+        if not token:
+            return None
+            
+        payload = verify_token(token)
+        if not payload:
+            return None
+        
+        username = payload.get("sub")
+        if not username:
+            return None
+        
+        # Get user info from database
+        if hasattr(rag_pipeline, 'vector_store') and hasattr(rag_pipeline.vector_store, 'get_user_by_username'):
+            user = rag_pipeline.vector_store.get_user_by_username(username)
+            return user
+        return None
+    except Exception as e:
+        logger.error(f"Error in get_current_user: {e}")
+        return None
 
 def check_worker_ready():
     """Check if Celery worker is ready"""
@@ -172,6 +225,45 @@ async def serve_ui():
             }
         }
 
+@app.post("/api/auth/login", response_model=LoginResponse, tags=["Authentication"])
+async def login(request: LoginRequest):
+    """Login endpoint to authenticate user."""
+    try:
+        if not hasattr(rag_pipeline, 'vector_store') or not hasattr(rag_pipeline.vector_store, 'verify_user_credentials'):
+            raise HTTPException(status_code=500, detail="Authentication not available")
+        
+        user = rag_pipeline.vector_store.verify_user_credentials(request.username, request.password)
+        
+        if not user:
+            raise HTTPException(status_code=401, detail="Invalid username or password")
+        
+        # Create JWT token
+        token = create_access_token(user["username"], user["id"])
+        
+        return LoginResponse(
+            success=True,
+            message="Login successful",
+            token=token,
+            user=user
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error during login: {e}")
+        raise HTTPException(status_code=500, detail=f"Error during login: {str(e)}")
+
+@app.get("/api/auth/me", tags=["Authentication"])
+async def get_current_user_info(current_user: Optional[Dict[str, Any]] = Depends(get_current_user)):
+    """Get current authenticated user information."""
+    if not current_user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    return current_user
+
+@app.post("/api/auth/logout", tags=["Authentication"])
+async def logout():
+    """Logout endpoint (client should remove token)."""
+    return {"message": "Logged out successfully"}
+
 @app.post("/api/ingest", response_model=EnhancedIngestionResponse, tags=["Documents"])
 async def ingest_documents_parallel(
     files: List[UploadFile] = File(..., description="PDF, CSV, or XLSX files to ingest"),
@@ -270,8 +362,13 @@ async def ingest_documents_parallel(
 async def ingest_documents_async(
     files: List[UploadFile] = File(..., description="PDF, CSV, or XLSX files to ingest"),
     max_workers: int = Form(default=4),
-    batch_size: int = Form(default=100)
+    batch_size: int = Form(default=100),
+    current_user: Optional[Dict[str, Any]] = Depends(get_current_user)
 ):
+    """Ingest documents asynchronously. Requires authentication."""
+    # Check authentication
+    if not current_user:
+        raise HTTPException(status_code=401, detail="Authentication required. Please login to upload documents.")
     logger.debug(f"Received ingestion request: {len(files)} file(s), max_workers={max_workers}, batch_size={batch_size}")
     try:
         if not files:
@@ -485,6 +582,45 @@ async def get_chat_history(session_id: str):
         logger.error(f"Error fetching chat history: {e}")
         raise HTTPException(status_code=500, detail=f"Error fetching chat history: {str(e)}")
 
+@app.get("/api/chat/sessions/list", response_model=ChatSessionsListResponse, tags=["RAG"])
+async def list_chat_sessions():
+    """Return list of all chat sessions with their first message as title."""
+    try:
+        if hasattr(rag_pipeline, 'vector_store') and hasattr(rag_pipeline.vector_store, 'get_all_chat_sessions'):
+            sessions_data = rag_pipeline.vector_store.get_all_chat_sessions()
+            sessions = [
+                ChatSessionInfo(
+                    session_id=s.get('session_id'),
+                    title=s.get('title', 'New Chat'),
+                    created_at=s.get('created_at', 0)
+                )
+                for s in sessions_data
+            ]
+            return ChatSessionsListResponse(sessions=sessions, total_sessions=len(sessions))
+        else:
+            return ChatSessionsListResponse(sessions=[], total_sessions=0)
+    except Exception as e:
+        logger.error(f"Error listing chat sessions: {e}")
+        raise HTTPException(status_code=500, detail=f"Error listing chat sessions: {str(e)}")
+
+@app.delete("/api/chat/sessions/{session_id}", tags=["RAG"])
+async def delete_chat_session(session_id: str):
+    """Delete a chat session and all its messages."""
+    try:
+        if hasattr(rag_pipeline, 'vector_store') and hasattr(rag_pipeline.vector_store, 'delete_chat_session'):
+            success = rag_pipeline.vector_store.delete_chat_session(session_id)
+            if success:
+                return {"message": "Chat session deleted successfully", "session_id": session_id}
+            else:
+                raise HTTPException(status_code=404, detail="Chat session not found or already deleted")
+        else:
+            raise HTTPException(status_code=500, detail="Chat session deletion not available")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error deleting chat session: {e}")
+        raise HTTPException(status_code=500, detail=f"Error deleting chat session: {str(e)}")
+
 @app.get("/api/documents", response_model=DocumentListResponse, tags=["Documents"])
 async def list_documents():
     """List all documents in the knowledge base."""
@@ -497,6 +633,25 @@ async def list_documents():
     except Exception as e:
         logger.error(f"Error listing documents: {e}")
         raise HTTPException(status_code=500, detail=f"Error listing documents: {str(e)}")
+
+@app.delete("/api/documents/{filename:path}", tags=["Documents"])
+async def delete_document(filename: str):
+    """Delete a single document and all its chunks from the knowledge base."""
+    try:
+        # URL decode the filename in case it has special characters
+        import urllib.parse
+        filename = urllib.parse.unquote(filename)
+        
+        success = rag_pipeline.delete_document(filename)
+        if success:
+            return {"message": f"Document '{filename}' deleted successfully", "filename": filename}
+        else:
+            raise HTTPException(status_code=404, detail=f"Document '{filename}' not found or already deleted")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error deleting document: {e}")
+        raise HTTPException(status_code=500, detail=f"Error deleting document: {str(e)}")
 
 def scrape_url(url: str, depth: int = 1, visited=None, use_proxy: bool = False, proxy_list: List[str] = None):
     if visited is None:

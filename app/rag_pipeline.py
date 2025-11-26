@@ -15,48 +15,64 @@ class RAGPipeline:
         self.llm_connector: GeminiConnector = LLMFactory.create_connector()
         self._small_talk_clf = None
 
-    def _resolve_pronoun_query(self, query: str, history_text: str) -> str:
-        """Resolve pronouns using conversation history."""
+    def _resolve_pronoun_query(self, query: str, history_text: str, history_list: List[Dict] = None) -> str:
+        """Resolve pronouns using conversation history with LLM-based entity extraction."""
         query_lower = query.lower().strip()
         
         # Detect pronouns and referential words
-        pronoun_pattern = r'\b(he|she|him|her|his|hers|it|its|they|them|their|that|this|those|these)\b'
+        pronoun_pattern = r'\b(he|she|him|her|his|hers|it|its|they|them|their|that|this|those|these|also|more|about)\b'
         
         if not re.search(pronoun_pattern, query_lower) or not history_text:
             return query
         
         try:
-            # Extract the main subject from the most recent USER question
-            lines = history_text.strip().split('\n')
-            for line in reversed(lines):
-                if line.startswith('USER:'):
-                    user_msg = line.replace('USER:', '').strip().lower()
-                    
-                    # Extract subject using simple heuristics
-                    # Look for "who is X" pattern
-                    who_match = re.search(r'who\s+is\s+(?:the\s+)?(.+?)(?:\?|$)', user_msg)
-                    if who_match:
-                        subject = who_match.group(1).strip()
-                        resolved = re.sub(pronoun_pattern, subject, query_lower)
-                        logger.info(f"Resolved: '{query}' -> '{resolved}'")
-                        return resolved
-                    
-                    # Fallback: take meaningful words after common question words
-                    words = user_msg.split()
-                    skip = {'who', 'what', 'where', 'when', 'is', 'are', 'the', 'a', 'an', 'current'}
-                    subject_words = [w.strip('?,.:;!') for w in words if w not in skip and len(w) > 2]
-                    
-                    if subject_words:
-                        subject = ' '.join(subject_words[:3])
-                        resolved = re.sub(pronoun_pattern, subject, query_lower)
-                        logger.info(f"Resolved: '{query}' -> '{resolved}'")
-                        return resolved
-                    break
-                    
+            # Use LLM to intelligently resolve pronouns by extracting entities from history
+            resolve_prompt = f"""You are a query rewriter for a conversation system.
+
+## Conversation History:
+{history_text}
+
+## Current User Question:
+{query}
+
+The current question contains pronouns or reference words (he/she/it/him/her/this/that/also/more/about).
+Your task is to rewrite the question by replacing pronouns with the actual subject/entity from the conversation history.
+
+IMPORTANT RULES:
+1. Extract the main subject/entity (person name, thing, concept) from previous USER messages
+2. Replace pronouns in the current question with the extracted entity
+3. Keep the question natural and clear
+4. Return ONLY the rewritten question, nothing else
+5. If you cannot find a clear reference, return the original question
+
+Examples:
+History: "USER: Tell me about John Doe"
+Question: "Give me more details about him"
+Rewritten: "Give me more details about John Doe"
+
+History: "USER: What is homeopathy?"
+Question: "Tell me more about it"
+Rewritten: "Tell me more about homeopathy"
+
+History: "USER: Who is patient H001?"
+Question: "What is his contact number?"
+Rewritten: "What is the contact number of patient H001?"
+
+Rewritten question:"""
+            
+            resolved_query = self.llm_connector.generate_response(resolve_prompt).strip()
+            
+            # Validate the resolved query
+            if resolved_query and len(resolved_query) > len(query) * 0.5:  # Should be reasonable length
+                logger.info(f"🔄 Pronoun resolved: '{query}' -> '{resolved_query}'")
+                return resolved_query
+            else:
+                logger.warning(f"LLM resolution returned invalid result, using original query")
+                return query
+                
         except Exception as e:
-            logger.warning(f"Pronoun resolution failed: {e}")
-        
-        return query
+            logger.warning(f"Pronoun resolution failed: {e}, using original query")
+            return query
 
     def process_query(
         self, 
@@ -88,6 +104,15 @@ class RAGPipeline:
                     logger.info(f"Loaded {len(recent)} history messages")
                 except Exception as e:
                     logger.warning(f"Failed to load history: {e}")
+            
+            # Resolve pronouns in query using conversation history
+            original_query = query
+            resolved_query = query
+            if history_text:
+                resolved_query = self._resolve_pronoun_query(query, history_text, history_list)
+                if resolved_query != original_query:
+                    logger.info(f"✅ Query reformulated: '{original_query}' -> '{resolved_query}'")
+                query = resolved_query  # Use resolved query for processing
             
             # STEP 1: TRY AGENT FIRST with history context
             logger.info("🤖 Step 1: Attempting intelligent agent search...")
@@ -132,7 +157,7 @@ class RAGPipeline:
                         logger.info("✅ Agent successfully answered the query")
                         
                         return self._create_response(
-                            query, 
+                            original_query,  # Return original query in response
                             agent_result, 
                             [agent_result[:500]], 
                             [{
@@ -147,7 +172,9 @@ class RAGPipeline:
                                 'total_sources': 1,
                                 'avg_relevance_score': 0.95,
                                 'search_method': 'agent',
-                                'llm_provider': 'Gemini-Agent'
+                                'llm_provider': 'Gemini-Agent',
+                                'original_query': original_query,
+                                'resolved_query': resolved_query if resolved_query != original_query else None
                             }
                         )
                 else:
@@ -198,7 +225,11 @@ class RAGPipeline:
                     'agent_failed': agent_failed
                 }
 
-                return self._create_response(query, answer, context_chunks, sources, confidence, metadata)
+                return self._create_response(original_query, answer, context_chunks, sources, confidence, {
+                    **metadata,
+                    'original_query': original_query,
+                    'resolved_query': resolved_query if resolved_query != original_query else None
+                })
                 
             except Exception as vector_error:
                 logger.error(f"❌ Vector search also failed: {vector_error}")
@@ -444,6 +475,14 @@ Response:"""
 
     def get_all_documents(self) -> List[Dict[str, Any]]:
         return self.vector_store.get_all_documents()
+
+    def delete_document(self, filename: str) -> bool:
+        """Delete a document and all its chunks from the knowledge base."""
+        try:
+            return self.vector_store.delete_document(filename)
+        except Exception as e:
+            logger.error(f"Error deleting document: {e}")
+            return False
 
     def get_document_by_id(self, doc_id: int) -> Optional[Dict[str, Any]]:
         return self.vector_store.get_document_by_id(doc_id)

@@ -297,6 +297,7 @@
             padding: 20px;
             box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
             transition: transform 0.2s ease;
+            position: relative;
         }
         .document-item:hover {
             transform: translateY(-2px);
@@ -306,6 +307,7 @@
             font-weight: 600;
             color: #2d3748;
             margin-bottom: 8px;
+            padding-right: 30px;
         }
         .document-info {
             color: #718096;
@@ -313,6 +315,34 @@
             display: flex;
             justify-content: space-between;
             align-items: center;
+        }
+        .document-delete-btn {
+            position: absolute;
+            top: 12px;
+            right: 12px;
+            background: transparent;
+            border: none;
+            color: #9ca3af;
+            cursor: pointer;
+            padding: 6px;
+            border-radius: 6px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 28px;
+            height: 28px;
+            transition: all 0.2s ease;
+            font-size: 18px;
+            font-weight: bold;
+            line-height: 1;
+        }
+        .document-delete-btn:hover {
+            background: #fee;
+            color: #e53e3e;
+            transform: scale(1.1);
+        }
+        .document-delete-btn:active {
+            transform: scale(0.95);
         }
         .delete-doc-btn {
             background: transparent;
@@ -560,7 +590,7 @@
         body.sidebar-collapsed .sidebar { width: var(--sidebar-width-collapsed); }
         .sidebar-header { padding: 14px 12px; border-bottom: 1px solid #2a2a2a; display: flex; align-items: center; justify-content: space-between; }
         .brand { font-weight: 700; color: #e5e7eb; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-        .sidebar-content { flex: 1; overflow-y: auto; padding: 10px; }
+        .sidebar-content { flex: 1; overflow-y: auto; overflow-x: hidden; padding: 10px; }
         .nav-title { font-size: 0.8rem; color: #9ca3af; padding: 8px 10px; }
         .nav-item { width: 100%; text-align: left; padding: 10px 12px; color: #d1d5db; background: transparent; border: none; border-radius: 8px; cursor: pointer; transition: background .2s ease, color .2s ease; display: flex; align-items: center; gap: 10px; }
         .nav-item:hover { background: #2a2a2a; color: #fff; }
@@ -568,6 +598,61 @@
         body.sidebar-collapsed .nav-title { display: none; }
         body.sidebar-collapsed .nav-text { display: none; }
         .nav-icon { width: 18px; height: 18px; display: inline-block; }
+        .history-item {
+            width: 100%;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 4px;
+            position: relative;
+            border-radius: 8px;
+            min-width: 0;
+            overflow: hidden;
+            padding-right: 8px;
+        }
+        .history-item:hover {
+            background: #2a2a2a;
+        }
+        .history-item.active {
+            background: #3a3a3a;
+        }
+        .history-item.active button {
+            color: #10a37f;
+        }
+        .history-item-text {
+            flex: 1;
+            min-width: 0;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        .history-item-delete {
+            opacity: 0;
+            transition: opacity 0.2s ease;
+            background: transparent;
+            border: none;
+            color: #9ca3af;
+            cursor: pointer;
+            padding: 4px;
+            border-radius: 4px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 24px;
+            height: 24px;
+            flex-shrink: 0;
+            margin-right: 4px;
+        }
+        .history-item:hover .history-item-delete {
+            opacity: 1;
+        }
+        .history-item-delete:hover {
+            background: #2a2a2a;
+            color: #e53e3e;
+        }
+        body.sidebar-collapsed .history-item-text { display: none; }
+        body.sidebar-collapsed .history-item-delete { display: none; }
+        body.sidebar-collapsed .nav-title[style*="margin-top"] { display: none; }
 
         .modal-footer {
             display: flex;
@@ -694,6 +779,57 @@
         </div>
     </div>
 
+    <!-- Login Modal -->
+    <div class="modal-overlay" id="loginModal">
+        <div class="modal-content" style="max-width: 400px;">
+            <button class="modal-close" onclick="hideLoginModal()">&times;</button>
+            <div class="modal-header">
+                <div class="modal-icon" style="color: #10a37f;">🔐</div>
+                <h3 class="modal-title">Login Required</h3>
+            </div>
+            <div class="modal-body">
+                <p style="margin-bottom: 20px; color: #9ca3af;">Please login to upload documents.</p>
+                <form id="loginForm" onsubmit="handleLogin(event)" style="display: flex; flex-direction: column; gap: 15px;">
+                    <div>
+                        <label for="loginUsername" style="display: block; margin-bottom: 5px; color: #d1d5db; font-size: 0.9rem;">Username</label>
+                        <input type="text" id="loginUsername" required 
+                               style="width: 100%; padding: 10px; background: #2a2a2a; border: 1px solid #3a3a3a; border-radius: 6px; color: #e5e7eb; font-size: 1rem;"
+                               placeholder="Enter username">
+                    </div>
+                    <div>
+                        <label for="loginPassword" style="display: block; margin-bottom: 5px; color: #d1d5db; font-size: 0.9rem;">Password</label>
+                        <input type="password" id="loginPassword" required
+                               style="width: 100%; padding: 10px; background: #2a2a2a; border: 1px solid #3a3a3a; border-radius: 6px; color: #e5e7eb; font-size: 1rem;"
+                               placeholder="Enter password">
+                    </div>
+                    <div id="loginError" style="color: #e53e3e; font-size: 0.9rem; display: none;"></div>
+                    <div style="display: flex; gap: 10px; justify-content: flex-end;">
+                        <button type="button" class="modal-btn" onclick="hideLoginModal()" style="background: #3a3a3a;">Cancel</button>
+                        <button type="submit" class="modal-btn modal-btn-primary" id="loginSubmitBtn">Login</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Confirmation Modal -->
+    <div class="modal-overlay" id="confirmModal">
+        <div class="modal-content" style="max-width: 400px;">
+            <button class="modal-close" onclick="hideConfirmModal()">&times;</button>
+            <div class="modal-header">
+                <div class="modal-icon" style="color: #f6ad55;">⚠️</div>
+                <h3 class="modal-title" id="confirmTitle">Confirm Action</h3>
+            </div>
+            <div class="modal-body">
+                <p id="confirmMessage" style="margin-bottom: 20px; color: #d1d5db;">Are you sure you want to proceed?</p>
+            </div>
+            <div class="modal-footer">
+                <button class="modal-btn" onclick="hideConfirmModal()" style="background: #3a3a3a;">Cancel</button>
+                <button class="modal-btn modal-btn-primary" id="confirmOkBtn" onclick="confirmAction()">Confirm</button>
+            </div>
+        </div>
+    </div>
+
     <div class="sidebar">
         <div class="sidebar-header">
             <div class="brand">🌿 Homeopathy RAG</div>
@@ -725,6 +861,29 @@
                 <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
                 <span class="nav-text">Statistics</span>
             </button>
+            <div class="nav-title" style="margin-top: 20px;">History</div>
+            <div id="chat-history-list" style="max-height: 400px; overflow-y: auto; overflow-x: hidden;">
+                <div class="loading" style="padding: 10px; color: #9ca3af; font-size: 0.85rem;">
+                    <div class="spinner" style="width: 16px; height: 16px;"></div>
+                    Loading history...
+                </div>
+            </div>
+            <div id="user-info" style="margin-top: 20px; padding: 10px; border-top: 1px solid #2a2a2a; display: none;">
+                <div style="display: flex; align-items: center; gap: 8px; color: #9ca3af; font-size: 0.85rem;">
+                    <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
+                        <circle cx="12" cy="7" r="4"></circle>
+                    </svg>
+                    <span id="user-name" style="flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"></span>
+                    <button onclick="handleLogout()" style="background: transparent; border: none; color: #9ca3af; cursor: pointer; padding: 4px; border-radius: 4px;" title="Logout">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path>
+                            <polyline points="16 17 21 12 16 7"></polyline>
+                            <line x1="21" y1="12" x2="9" y2="12"></line>
+                        </svg>
+                    </button>
+                </div>
+            </div>
         </div>
     </div>
     <div class="container">
@@ -904,6 +1063,285 @@
                 hideModal();
             }
         });
+
+        // Authentication functions
+        const AUTH_TOKEN_KEY = 'homeo_rag_auth_token';
+        const USER_INFO_KEY = 'homeo_rag_user_info';
+        let currentUser = null;
+
+        // Get auth token from localStorage
+        function getAuthToken() {
+            try {
+                return localStorage.getItem(AUTH_TOKEN_KEY);
+            } catch (e) {
+                return null;
+            }
+        }
+
+        // Set auth token in localStorage
+        function setAuthToken(token, userInfo) {
+            try {
+                localStorage.setItem(AUTH_TOKEN_KEY, token);
+                localStorage.setItem(USER_INFO_KEY, JSON.stringify(userInfo));
+                currentUser = userInfo;
+                updateUserDisplay();
+            } catch (e) {
+                console.error('Error saving auth token:', e);
+            }
+        }
+
+        // Remove auth token from localStorage
+        function removeAuthToken() {
+            try {
+                localStorage.removeItem(AUTH_TOKEN_KEY);
+                localStorage.removeItem(USER_INFO_KEY);
+                currentUser = null;
+                updateUserDisplay();
+            } catch (e) {
+                console.error('Error removing auth token:', e);
+            }
+        }
+
+        // Get user info from localStorage
+        function getUserInfo() {
+            try {
+                const userInfoStr = localStorage.getItem(USER_INFO_KEY);
+                if (userInfoStr) {
+                    return JSON.parse(userInfoStr);
+                }
+            } catch (e) {
+                console.error('Error getting user info:', e);
+            }
+            return null;
+        }
+
+        // Check if user is authenticated
+        function isAuthenticated() {
+            const token = getAuthToken();
+            const authenticated = token !== null && token !== '';
+            console.log('isAuthenticated check:', authenticated, 'token exists:', !!token);
+            return authenticated;
+        }
+
+        // Update user display
+        function updateUserDisplay() {
+            console.log('updateUserDisplay called, currentUser:', currentUser);
+            const userInfoDiv = document.getElementById('user-info');
+            const userNameSpan = document.getElementById('user-name');
+            console.log('User info div:', userInfoDiv, 'User name span:', userNameSpan);
+            
+            const user = currentUser || getUserInfo();
+            console.log('User data:', user);
+            
+            if (user && user.username) {
+                if (userInfoDiv && userNameSpan) {
+                    userInfoDiv.style.display = 'block';
+                    userNameSpan.textContent = user.username || 'User';
+                    console.log('User display updated:', user.username);
+                }
+            } else {
+                if (userInfoDiv) {
+                    userInfoDiv.style.display = 'none';
+                    console.log('User display hidden');
+                }
+            }
+        }
+
+        // Show login modal
+        function showLoginModal() {
+            console.log('showLoginModal called');
+            const modal = document.getElementById('loginModal');
+            console.log('Modal element:', modal);
+            if (modal) {
+                modal.classList.add('show');
+                document.body.style.overflow = 'hidden';
+                // Clear form
+                const form = document.getElementById('loginForm');
+                const errorDiv = document.getElementById('loginError');
+                if (form) form.reset();
+                if (errorDiv) {
+                    errorDiv.style.display = 'none';
+                    errorDiv.textContent = '';
+                }
+                console.log('Login modal shown');
+            } else {
+                console.error('Login modal element not found!');
+            }
+        }
+
+        // Hide login modal
+        function hideLoginModal() {
+            const modal = document.getElementById('loginModal');
+            if (modal) {
+                modal.classList.remove('show');
+                document.body.style.overflow = 'auto';
+            }
+        }
+
+        // Close login modal when clicking outside (wait for DOM)
+        function setupLoginModal() {
+            const loginModal = document.getElementById('loginModal');
+            if (loginModal) {
+                loginModal.addEventListener('click', function(e) {
+                    if (e.target === this) {
+                        hideLoginModal();
+                    }
+                });
+            }
+        }
+
+        // Handle login form submission
+        async function handleLogin(event) {
+            event.preventDefault();
+            const username = document.getElementById('loginUsername').value;
+            const password = document.getElementById('loginPassword').value;
+            const errorDiv = document.getElementById('loginError');
+            const submitBtn = document.getElementById('loginSubmitBtn');
+            
+            errorDiv.style.display = 'none';
+            errorDiv.textContent = '';
+            submitBtn.disabled = true;
+            submitBtn.textContent = 'Logging in...';
+
+            try {
+                const response = await fetch(`${API_BASE}/api/auth/login`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ username, password })
+                });
+
+                const result = await response.json();
+
+                if (response.ok && result.success) {
+                    console.log('Login successful, token:', result.token, 'user:', result.user);
+                    setAuthToken(result.token, result.user);
+                    hideLoginModal();
+                    showModal('Login Successful', 'You are now logged in. You can upload documents.', 'success');
+                    // Retry upload if it was triggered
+                    if (window.pendingUpload) {
+                        window.pendingUpload = false;
+                        setTimeout(() => uploadFilesAsync(), 500);
+                    }
+                } else {
+                    errorDiv.textContent = result.detail || 'Invalid username or password';
+                    errorDiv.style.display = 'block';
+                }
+            } catch (error) {
+                errorDiv.textContent = 'Login failed. Please try again.';
+                errorDiv.style.display = 'block';
+                console.error('Login error:', error);
+            } finally {
+                submitBtn.disabled = false;
+                submitBtn.textContent = 'Login';
+            }
+        }
+
+        // Confirmation modal functions
+        let confirmCallback = null;
+
+        function showConfirmModal(title, message, callback) {
+            const modal = document.getElementById('confirmModal');
+            const titleEl = document.getElementById('confirmTitle');
+            const messageEl = document.getElementById('confirmMessage');
+            
+            if (modal && titleEl && messageEl) {
+                titleEl.textContent = title;
+                messageEl.textContent = message;
+                confirmCallback = callback;
+                modal.classList.add('show');
+                document.body.style.overflow = 'hidden';
+            }
+        }
+
+        function hideConfirmModal() {
+            const modal = document.getElementById('confirmModal');
+            if (modal) {
+                modal.classList.remove('show');
+                document.body.style.overflow = 'auto';
+                confirmCallback = null;
+            }
+        }
+
+        function confirmAction() {
+            if (confirmCallback) {
+                confirmCallback();
+            }
+            hideConfirmModal();
+        }
+
+        // Setup confirmation modal click outside
+        function setupConfirmModal() {
+            const confirmModal = document.getElementById('confirmModal');
+            if (confirmModal) {
+                confirmModal.addEventListener('click', function(e) {
+                    if (e.target === this) {
+                        hideConfirmModal();
+                    }
+                });
+            }
+        }
+
+        // Handle logout
+        function handleLogout() {
+            showConfirmModal(
+                'Logout',
+                'Are you sure you want to logout?',
+                async () => {
+                    try {
+                        await fetch(`${API_BASE}/api/auth/logout`, {
+                            method: 'POST',
+                            headers: {
+                                'Authorization': `Bearer ${getAuthToken()}`
+                            }
+                        });
+                    } catch (e) {
+                        console.error('Logout error:', e);
+                    } finally {
+                        removeAuthToken();
+                        showModal('Logged Out', 'You have been logged out successfully.', 'success');
+                    }
+                }
+            );
+        }
+
+        // Check authentication on page load
+        async function checkAuthOnLoad() {
+            console.log('checkAuthOnLoad called');
+            const userInfo = getUserInfo();
+            const token = getAuthToken();
+            console.log('Stored user info:', userInfo, 'Token exists:', !!token);
+            
+            if (userInfo && token) {
+                currentUser = userInfo;
+                updateUserDisplay();
+                // Verify token is still valid
+                try {
+                    const res = await fetch(`${API_BASE}/api/auth/me`, {
+                        headers: {
+                            'Authorization': `Bearer ${token}`
+                        }
+                    });
+                    if (res.ok) {
+                        const userData = await res.json();
+                        currentUser = userData;
+                        setAuthToken(token, userData); // Update stored user info
+                        updateUserDisplay();
+                        console.log('Token verified, user:', userData);
+                    } else {
+                        console.log('Token invalid, removing');
+                        removeAuthToken();
+                    }
+                } catch (error) {
+                    console.error('Error verifying token:', error);
+                    removeAuthToken();
+                }
+            } else {
+                console.log('No stored auth info');
+                updateUserDisplay();
+            }
+        }
 
         // Close modal with escape key
         document.addEventListener('keydown', function(e) {
@@ -1116,6 +1554,13 @@
                 return;
             }
 
+            // Check authentication
+            if (!isAuthenticated()) {
+                window.pendingUpload = true;
+                showLoginModal();
+                return;
+            }
+
             const formData = new FormData();
             selectedFiles.forEach(file => formData.append('files', file));
 
@@ -1136,10 +1581,17 @@
             let jobId = null;
             try {
                 // Use fetchWithTimeout with extended timeout for file uploads (15 minutes)
+                const token = getAuthToken();
+                const headers = {};
+                if (token) {
+                    headers['Authorization'] = `Bearer ${token}`;
+                }
+                
                 const res = await fetchWithTimeout(
                     `${API_BASE}/api/ingest/async`, 
                     { 
-                        method: 'POST', 
+                        method: 'POST',
+                        headers: headers,
                         body: formData 
                     },
                     900000  // 15 minutes timeout for large file uploads
@@ -1151,6 +1603,14 @@
                     try {
                         const errorData = await res.json();
                         errorMessage = errorData.detail || errorData.message || errorMessage;
+                        
+                        // Handle authentication errors
+                        if (res.status === 401) {
+                            removeAuthToken();
+                            window.pendingUpload = true;
+                            showLoginModal();
+                            return;
+                        }
                     } catch (parseError) {
                         errorMessage = `Server error: ${res.status} ${res.statusText}`;
                     }
@@ -1629,8 +2089,17 @@
                                 titleDisplay = `📄 ${doc.filename}`;
                             }
                             
+                            // Escape filename for use in JavaScript
+                            const escapedFilename = doc.filename.replace(/'/g, "\\'").replace(/"/g, '&quot;');
+                            
                             return `
                                 <div class="document-item">
+                                    <button class="document-delete-btn" 
+                                            onclick="deleteDocument('${escapedFilename}')" 
+                                            title="Delete this document"
+                                            aria-label="Delete document">
+                                        ×
+                                    </button>
                                     <div class="document-title">${titleDisplay}</div>
                                     <div class="document-info">
                                         <span>🧩 ${doc.total_chunks || 0} chunks</span>
@@ -1656,27 +2125,37 @@
             }
         }
 
-        // Delete a single document by id
-        async function deleteDocument(docId) {
-            if (!docId && docId !== 0) return;
-            if (!confirm('Delete this document? This will remove it from the database.')) return;
+        // Delete a single document by filename
+        async function deleteDocument(filename) {
+            if (!filename) return;
+            if (!confirm(`Are you sure you want to delete "${filename}"? This will remove all chunks of this document from the database. This action cannot be undone.`)) {
+                return;
+            }
+            
             // Disable the clicked button to prevent duplicates
+            const deleteBtns = Array.from(document.querySelectorAll('.document-delete-btn'));
+            deleteBtns.forEach(b => b.disabled = true);
+            
             try {
-                const btns = Array.from(document.querySelectorAll('.delete-doc-btn'));
-                btns.forEach(b => b.disabled = true);
-                const res = await fetch(`${API_BASE}/api/documents/${docId}`, { method: 'DELETE' });
+                // URL encode the filename for the API call
+                const encodedFilename = encodeURIComponent(filename);
+                const res = await fetch(`${API_BASE}/api/documents/${encodedFilename}`, { 
+                    method: 'DELETE' 
+                });
                 const data = await res.json().catch(() => ({}));
+                
                 if (!res.ok) {
-                    throw new Error(data.detail || 'Deletion endpoint not available');
+                    throw new Error(data.detail || 'Failed to delete document');
                 }
+                
+                // Refresh the uploaded docs index and reload documents list
                 await refreshUploadedDocsIndex();
                 await loadDocuments();
-                showModal('Document Deleted', 'The document was removed successfully.', 'success');
+                showModal('Document Deleted', `The document "${filename}" has been deleted successfully.`, 'success');
             } catch (e) {
                 showModal('Delete Failed', e.message || 'Unable to delete document.', 'error');
             } finally {
-                const btns = Array.from(document.querySelectorAll('.delete-doc-btn'));
-                btns.forEach(b => b.disabled = false);
+                deleteBtns.forEach(b => b.disabled = false);
             }
         }
 
@@ -1965,6 +2444,8 @@
                 const sources = (result.metadata && result.metadata.bypass === 'small_talk') ? [] : (Array.isArray(result.sources) ? result.sources : []);
                 // Replace typing indicator with streaming typewriter effect
                 startTypewriterRender(typingIndex, answer, sources);
+                // Refresh history list after sending message (to update title if it's the first message)
+                setTimeout(() => loadChatHistoryList(), 1000);
             } catch (error) {
                 chatMessages[typingIndex] = { role: 'ai', text: `❌ ${error.message}` };
                 saveChatHistory();
@@ -2034,17 +2515,175 @@
         }
 
         async function newChat() {
-            if (!confirm('Start a new chat? This will clear your chat history.')) return;
-            // Clear local chat history and session id; do NOT create a new session yet
-            chatMessages = [];
-            chatSessionId = null;
-            try { localStorage.removeItem(CHAT_STORAGE_KEY); } catch (_) {}
-            try { localStorage.removeItem(CHAT_SESSION_KEY); } catch (_) {}
-            const container = document.getElementById('chat-messages');
-            if (container) container.innerHTML = '';
-            renderChat();
-            // Update button state after clearing chat
-            updateNewChatButtonState();
+            // Create a new session - old session is already saved in DB
+            try {
+                const sidRes = await fetch(`${API_BASE}/api/chat/new`, { method: 'POST' });
+                const sidData = await sidRes.json();
+                if (sidRes.ok && sidData.session_id) {
+                    // Clear current chat but keep old session in DB
+                    chatMessages = [];
+                    chatSessionId = sidData.session_id;
+                    try { 
+                        localStorage.setItem(CHAT_SESSION_KEY, chatSessionId);
+                        localStorage.setItem(CHAT_STORAGE_KEY, JSON.stringify([]));
+                    } catch (_) {}
+                    const container = document.getElementById('chat-messages');
+                    if (container) container.innerHTML = '';
+                    renderChat();
+                    updateNewChatButtonState();
+                    // Refresh history list to show new session
+                    setTimeout(() => loadChatHistoryList(), 500);
+                }
+            } catch (error) {
+                console.error('Failed to create new chat session:', error);
+                // Still clear local chat even if API fails
+                chatMessages = [];
+                chatSessionId = null;
+                try { localStorage.removeItem(CHAT_STORAGE_KEY); } catch (_) {}
+                try { localStorage.removeItem(CHAT_SESSION_KEY); } catch (_) {}
+                const container = document.getElementById('chat-messages');
+                if (container) container.innerHTML = '';
+                renderChat();
+                updateNewChatButtonState();
+                loadChatHistoryList();
+            }
+        }
+
+        // Load and display chat history list
+        async function loadChatHistoryList() {
+            const historyList = document.getElementById('chat-history-list');
+            if (!historyList) return;
+            
+            try {
+                const response = await fetch(`${API_BASE}/api/chat/sessions/list`);
+                const result = await response.json();
+                
+                if (response.ok && result.sessions) {
+                    if (result.sessions.length === 0) {
+                        historyList.innerHTML = '<div style="padding: 10px; color: #9ca3af; font-size: 0.85rem; text-align: center;">No chat history yet</div>';
+                    } else {
+                        historyList.innerHTML = result.sessions.map(session => {
+                            const isActive = session.session_id === chatSessionId;
+                            const escapedTitle = session.title.replace(/'/g, "&#39;").replace(/"/g, "&quot;");
+                            return `
+                                <div class="history-item ${isActive ? 'active' : ''}" style="display: flex; align-items: center; gap: 8px; position: relative; min-width: 0; overflow: hidden;">
+                                    <button style="flex: 1; min-width: 0; text-align: left; padding: 10px 12px; color: inherit; background: transparent; border: none; cursor: pointer; display: flex; align-items: center; gap: 10px; border-radius: 8px; transition: background .2s ease;" 
+                                            onclick="loadChatSession('${session.session_id}')" 
+                                            title="${escapedTitle}"
+                                            onmouseover="this.style.background='#2a2a2a'"
+                                            onmouseout="this.style.background='transparent'">
+                                        <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+                                        </svg>
+                                        <span class="history-item-text">${escapedTitle}</span>
+                                    </button>
+                                    <button class="history-item-delete" 
+                                            onclick="event.stopPropagation(); deleteChatSession('${session.session_id}')" 
+                                            title="Delete this chat"
+                                            aria-label="Delete chat">
+                                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                            <polyline points="3 6 5 6 21 6"></polyline>
+                                            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                                        </svg>
+                                    </button>
+                                </div>
+                            `;
+                        }).join('');
+                    }
+                } else {
+                    historyList.innerHTML = '<div style="padding: 10px; color: #9ca3af; font-size: 0.85rem;">Failed to load history</div>';
+                }
+            } catch (error) {
+                console.error('Error loading chat history:', error);
+                historyList.innerHTML = '<div style="padding: 10px; color: #9ca3af; font-size: 0.85rem;">Error loading history</div>';
+            }
+        }
+
+        // Load a specific chat session
+        async function loadChatSession(sessionId) {
+            if (!sessionId) return;
+            
+            try {
+                // Fetch chat history from server
+                const response = await fetch(`${API_BASE}/api/chat/${sessionId}`);
+                const result = await response.json();
+                
+                if (response.ok && result.messages) {
+                    // Set the session ID
+                    chatSessionId = sessionId;
+                    try { 
+                        localStorage.setItem(CHAT_SESSION_KEY, chatSessionId);
+                    } catch (_) {}
+                    
+                    // Convert server messages to chat format
+                    chatMessages = result.messages.map(msg => ({
+                        role: msg.role,
+                        text: msg.message || '',
+                        sources: [] // Sources aren't stored in DB, only messages
+                    }));
+                    
+                    // Save to localStorage
+                    saveChatHistory();
+                    
+                    // Render the chat
+                    renderChat();
+                    
+                    // Update button state
+                    updateNewChatButtonState();
+                    
+                    // Refresh history list to update active state
+                    loadChatHistoryList();
+                    
+                    // Navigate to chat view
+                    navigate('query', document.querySelector('.nav-item[data-section="query"]'));
+                } else {
+                    showModal('Load Error', 'Failed to load chat session', 'error');
+                }
+            } catch (error) {
+                console.error('Error loading chat session:', error);
+                showModal('Load Error', `Error loading chat session: ${error.message}`, 'error');
+            }
+        }
+
+        // Delete a chat session
+        async function deleteChatSession(sessionId) {
+            if (!sessionId) return;
+            
+            if (!confirm('Are you sure you want to delete this chat session? This action cannot be undone.')) {
+                return;
+            }
+            
+            try {
+                const response = await fetch(`${API_BASE}/api/chat/sessions/${sessionId}`, {
+                    method: 'DELETE'
+                });
+                
+                const result = await response.json();
+                
+                if (response.ok) {
+                    // If the deleted session is the currently active one, clear it
+                    if (chatSessionId === sessionId) {
+                        chatMessages = [];
+                        chatSessionId = null;
+                        try { 
+                            localStorage.removeItem(CHAT_STORAGE_KEY);
+                            localStorage.removeItem(CHAT_SESSION_KEY);
+                        } catch (_) {}
+                        renderChat();
+                        updateNewChatButtonState();
+                    }
+                    
+                    // Refresh history list
+                    loadChatHistoryList();
+                    
+                    showModal('Chat Deleted', 'The chat session has been deleted successfully.', 'success');
+                } else {
+                    throw new Error(result.detail || 'Failed to delete chat session');
+                }
+            } catch (error) {
+                console.error('Error deleting chat session:', error);
+                showModal('Delete Failed', `Error deleting chat session: ${error.message}`, 'error');
+            }
         }
 
         // Load chat history from server if session exists
@@ -2075,8 +2714,18 @@
 
         // Load initial data
         document.addEventListener('DOMContentLoaded', function() {
+            // Setup modals
+            setupLoginModal();
+            setupConfirmModal();
+            // Check authentication on page load
+            setTimeout(() => {
+                checkAuthOnLoad();
+            }, 100);
             // Load chat history from localStorage on page load
             loadChatHistory();
+            
+            // Load chat history list
+            loadChatHistoryList();
             
             // Render chat from localStorage first
             renderChat();

@@ -86,6 +86,15 @@ class PGVectorStore:
         # Initialize LangChain PGVector store
         self._init_langchain_vectorstore()
     
+    def close(self):
+        """Close database connection and cleanup resources."""
+        try:
+            if hasattr(self, 'conn') and self.conn:
+                self.conn.close()
+                logger.info("Database connection closed")
+        except Exception as e:
+            logger.error(f"Error closing database connection: {e}")
+
     def _init_langchain_vectorstore(self):
         """Initialize LangChain's PGVector store."""
         # Create LangChain-compatible embeddings
@@ -123,6 +132,18 @@ class PGVectorStore:
             created_at = Column(Integer, nullable=False, default=lambda: int(time.time()))
 
         self.ChatMessageORM = ChatMessageORM
+
+        # User authentication table
+        class UserORM(Base):
+            __tablename__ = "users"
+            __table_args__ = {"extend_existing": True}
+
+            id = Column(Integer, primary_key=True, autoincrement=True)
+            username = Column(String(100), unique=True, nullable=False, index=True)
+            password = Column(String(255), nullable=False)  # Will store hashed password
+            created_at = Column(Integer, nullable=False, default=lambda: int(time.time()))
+
+        self.UserORM = UserORM
 
     def _setup_database(self):
         """Setup database with vector extension and tables."""
@@ -184,6 +205,122 @@ class PGVectorStore:
                 }
                 for r in rows
             ]
+
+    def get_all_chat_sessions(self) -> List[Dict[str, Any]]:
+        """Get all chat sessions with their first user message as title, ordered by most recent."""
+        with self.SessionLocal() as db:
+            # Get distinct session_ids with their first user message
+            sessions_query = db.query(
+                self.ChatMessageORM.session_id,
+                func.min(self.ChatMessageORM.created_at).label('first_message_time'),
+                func.min(self.ChatMessageORM.id).label('first_message_id')
+            ).group_by(self.ChatMessageORM.session_id).order_by(
+                func.min(self.ChatMessageORM.created_at).desc()
+            ).all()
+            
+            sessions = []
+            for session_id, first_time, first_id in sessions_query:
+                # Get the first user message for this session
+                first_user_msg = db.query(self.ChatMessageORM).filter_by(
+                    session_id=session_id,
+                    role='user'
+                ).order_by(
+                    self.ChatMessageORM.created_at.asc(),
+                    self.ChatMessageORM.id.asc()
+                ).first()
+                
+                title = first_user_msg.message[:100] + "..." if first_user_msg and len(first_user_msg.message) > 100 else (first_user_msg.message if first_user_msg else "New Chat")
+                
+                sessions.append({
+                    "session_id": session_id,
+                    "title": title,
+                    "created_at": first_time,
+                    "first_message_id": first_id
+                })
+            
+            return sessions
+
+    def delete_chat_session(self, session_id: str) -> bool:
+        """Delete all chat messages for a given session."""
+        try:
+            with self.SessionLocal() as db:
+                deleted_count = db.query(self.ChatMessageORM).filter_by(session_id=session_id).delete()
+                db.commit()
+                logger.info(f"Deleted {deleted_count} messages for session {session_id}")
+                return deleted_count > 0
+        except Exception as e:
+            logger.error(f"Error deleting chat session {session_id}: {e}")
+            return False
+
+    def verify_user_credentials(self, username: str, password: str) -> Optional[Dict[str, Any]]:
+        """Verify user credentials and return user info if valid."""
+        import hashlib
+        try:
+            with self.SessionLocal() as db:
+                user = db.query(self.UserORM).filter_by(username=username).first()
+                if not user:
+                    return None
+                
+                # Hash the provided password and compare
+                # Using SHA256 for simplicity (in production, use bcrypt)
+                password_hash = hashlib.sha256(password.encode()).hexdigest()
+                
+                if user.password == password_hash:
+                    return {
+                        "id": user.id,
+                        "username": user.username,
+                        "created_at": user.created_at
+                    }
+                return None
+        except Exception as e:
+            logger.error(f"Error verifying user credentials: {e}")
+            return None
+
+    def get_user_by_username(self, username: str) -> Optional[Dict[str, Any]]:
+        """Get user information by username."""
+        try:
+            with self.SessionLocal() as db:
+                user = db.query(self.UserORM).filter_by(username=username).first()
+                if user:
+                    return {
+                        "id": user.id,
+                        "username": user.username,
+                        "created_at": user.created_at
+                    }
+                return None
+        except Exception as e:
+            logger.error(f"Error getting user by username: {e}")
+            return None
+
+    def create_user(self, username: str, password: str) -> Optional[Dict[str, Any]]:
+        """Create a new user (for admin use)."""
+        import hashlib
+        try:
+            with self.SessionLocal() as db:
+                # Check if user already exists
+                existing = db.query(self.UserORM).filter_by(username=username).first()
+                if existing:
+                    return None
+                
+                # Hash password
+                password_hash = hashlib.sha256(password.encode()).hexdigest()
+                
+                user = self.UserORM(
+                    username=username,
+                    password=password_hash
+                )
+                db.add(user)
+                db.commit()
+                db.refresh(user)
+                
+                return {
+                    "id": user.id,
+                    "username": user.username,
+                    "created_at": user.created_at
+                }
+        except Exception as e:
+            logger.error(f"Error creating user: {e}")
+            return None
 
     def _create_chunk_batches(self, documents: List[Dict[str, Any]]) -> List[ChunkBatch]:
         """Create batches with complete metadata."""
@@ -562,6 +699,26 @@ class PGVectorStore:
         except Exception as e:
             logger.error(f"Error getting all documents: {e}")
             return []
+
+    def delete_document(self, filename: str) -> bool:
+        """Delete all chunks for a document by filename."""
+        try:
+            with self.SessionLocal() as session:
+                # Delete all chunks where filename matches
+                result = session.execute(
+                    text("""
+                        DELETE FROM langchain_pg_embedding
+                        WHERE cmetadata->>'filename' = :filename
+                    """),
+                    {"filename": filename}
+                )
+                deleted_count = result.rowcount
+                session.commit()
+                logger.info(f"Deleted {deleted_count} chunks for document: {filename}")
+                return deleted_count > 0
+        except Exception as e:
+            logger.error(f"Error deleting document {filename}: {e}")
+            return False
 
     def get_document_chunks(self, doc_id: int) -> List[Dict[str, Any]]:
         """Get chunks for a specific document."""
