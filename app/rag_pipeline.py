@@ -121,7 +121,7 @@ class RAGPipeline:
                     is_rejection = any(phrase in agent_result_lower for phrase in rejection_phrases)
                     
                     # Also check if result is too short (likely an error/rejection)
-                    is_too_short = len(agent_result_lower) < 15
+                    is_too_short = len(agent_result_lower) < 3
                     
                     if is_rejection or is_too_short:
                         logger.warning(f"⚠️ Agent returned insufficient result (rejection={is_rejection}, too_short={is_too_short})")
@@ -287,6 +287,7 @@ class RAGPipeline:
     - Do NOT use external knowledge or make assumptions
     - If user will gave you the their name you can use their name in the response as for example: "Hello John, how can I help you today?"
     - please don't add I found 6 records related to "xyz" this kind of information in the response.
+    - Please don't add any markdown formatting in the response.
 
     Answer:""")
             
