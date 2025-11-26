@@ -261,83 +261,52 @@ class RAGPipeline:
         }]
 
     def _generate_response(self, query: str, context_chunks: List[str], history: str = "") -> str:
-        """Generate LLM response with context and history."""
-        
-        if not context_chunks and not history:
-            return "I don't have information about this."
+            """Generate LLM response with context and history."""
+            
+            if not context_chunks and not history:
+                return "I don't have information about this."
 
-        context_block = "\n\n".join([f"[{i+1}] {c}" for i, c in enumerate(context_chunks)])
-        
-        # Build system prompt
-        system_parts = [
-            "You are a helpful and knowledgeable assistant. Your task is to provide clear, accurate, and conversational answers based ONLY on the information provided in the Knowledge Base below.",
-            "\nIMPORTANT RULES:",
-            "- Synthesize information from the Knowledge Base into a natural, flowing response",
-            "- Do NOT copy raw text directly - rephrase and summarize in your own words",
-            "- Be conversational and easy to understand",
-            "- If the question uses pronouns (he/she/it/they/this/that), check Recent Conversation to understand the reference",
-            "- Do NOT mention 'Knowledge Base', 'records', 'documents', or 'conversation history' in your response",
-            "- Do NOT say things like 'Based on the records' or 'I found X records'",
-            "- If you cannot answer from the provided information, politely say you don't have that specific information",
-            "- NEVER use external knowledge - only use what's provided below",
-            "- Please don't add the markdown format in your response"
-        ]
-        
-        if history:
-            system_parts.append(f"\n## Recent Conversation:\n{history}")
-        
-        system_parts.append(f"\n## Knowledge Base:\n{context_block}")
-        system_parts.append(f"\n## User Question:\n{query}")
-        system_parts.append("\nProvide a clear, natural answer:")
-        
-        prompt = "\n".join(system_parts)
-        
-        try:
-            logger.info(f"Sending prompt to LLM ({len(context_block)} chars context)")
-            response = self.llm_connector.generate_response(prompt)
-            logger.info(f"LLM response received ({len(response)} chars)")
+            context_block = "\n\n".join([f"[{i+1}] {c}" for i, c in enumerate(context_chunks)])
             
-            # Clean up response if it still contains unwanted phrases
-            unwanted_phrases = [
-                "based on the records",
-                "according to the documents",
-                "the records show",
-                "from the knowledge base",
-                "i found",
-                "records related to"
-            ]
+            # Build system prompt
+
+            system_parts = ["You are a knowledgeable assistant. Answer questions using the provided information."]
             
-            response_cleaned = response.strip()
-            for phrase in unwanted_phrases:
-                if phrase in response_cleaned.lower():
-                    # Try to remove the phrase
-                    response_cleaned = re.sub(
-                        re.escape(phrase), 
-                        "", 
-                        response_cleaned, 
-                        flags=re.IGNORECASE
-                    ).strip()
+            if history:
+                system_parts.append(f"\n## Recent Conversation:\n{history}")
             
-            if len(response_cleaned) < 20:
-                logger.warning("Response too short after cleaning, using original")
-                response_cleaned = response.strip()
+            system_parts.append(f"\n## Knowledge Base:\n{context_block}")
+            system_parts.append(f"\n## User Question:\n{query}")
+            system_parts.append("""
+    ## Instructions:
+    - If the question uses pronouns (he/she/it/they/this/that), check Recent Conversation to understand the reference
+    - Answer based on the Knowledge Base information
+    - Be conversational and natural
+    - Don't mention "Knowledge Base" or "conversation history" in your response
+    - ONLY use information from the Knowledge Base and Recent Conversation above
+    - Do NOT use external knowledge or make assumptions
+    - If user will gave you the their name you can use their name in the response as for example: "Hello John, how can I help you today?"
+    - please don't add I found 6 records related to "xyz" this kind of information in the response.
+
+    Answer:""")
             
-            if len(response_cleaned) < 20:
-                logger.warning("Response still too short, generating fallback summary")
-                # Create a better fallback summary
-                first_chunk = context_chunks[0]
-                sentences = first_chunk.split('. ')
-                summary = '. '.join(sentences[:2]) + "."
-                return summary
+            prompt = "\n".join(system_parts)
             
-            return response_cleaned
-            
-        except Exception as e:
-            logger.error(f"LLM error: {e}")
-            # Better fallback
-            first_chunk = context_chunks[0]
-            sentences = first_chunk.split('. ')
-            return '. '.join(sentences[:2]) + "."
+            try:
+                print('prompt =========================================== ',prompt)
+                logger.info(f"Sending prompt to LLM ({len(context_block)} chars context)")
+                response = self.llm_connector.generate_response(prompt)
+                logger.info(f"LLM response received ({len(response)} chars)")
+                
+                if len(response.strip()) < 20:
+                    logger.warning("Response too short, using fallback")
+                    return ". ".join(context_chunks[0].split('. ')[:3]) + "."
+                
+                return response.strip()
+                
+            except Exception as e:
+                logger.error(f"LLM error: {e}")
+                return ". ".join(context_chunks[0].split('. ')[:3]) + "."
 
     def reform_query(self, query: str, history: str = "") -> str:
         """Generate LLM response with context and history."""
