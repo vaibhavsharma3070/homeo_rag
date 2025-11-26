@@ -2047,13 +2047,45 @@
             updateNewChatButtonState();
         }
 
+        // Load chat history from server if session exists
+        async function loadChatHistoryFromServer() {
+            if (!chatSessionId) return;
+            try {
+                const response = await fetch(`${API_BASE}/api/chat/${chatSessionId}`);
+                if (response.ok) {
+                    const result = await response.json();
+                    if (result.messages && Array.isArray(result.messages) && result.messages.length > 0) {
+                        // Convert server messages to chat format
+                        const serverMessages = result.messages.map(msg => ({
+                            role: msg.role,
+                            text: msg.message || '',
+                            sources: [] // Sources aren't stored in DB, only messages
+                        }));
+                        // Merge with local messages, preferring server messages for consistency
+                        chatMessages = serverMessages;
+                        saveChatHistory();
+                        renderChat();
+                    }
+                }
+            } catch (error) {
+                console.warn('Failed to load chat history from server:', error);
+                // Fall back to local storage if server fails
+            }
+        }
+
         // Load initial data
         document.addEventListener('DOMContentLoaded', function() {
-            // Always start with a blank chat on load (device-local)
-            try { localStorage.removeItem(CHAT_STORAGE_KEY); } catch (_) {}
-            try { localStorage.removeItem(CHAT_SESSION_KEY); } catch (_) {}
-            chatMessages = [];
-            chatSessionId = null;
+            // Load chat history from localStorage on page load
+            loadChatHistory();
+            
+            // Render chat from localStorage first
+            renderChat();
+            
+            // If we have a session_id, also try to load from server to ensure consistency
+            if (chatSessionId) {
+                loadChatHistoryFromServer();
+            }
+            
             // Check API health
             fetch(`${API_BASE}/health`)
                 .then(response => response.json())
@@ -2074,8 +2106,6 @@
 
             // Build initial index of uploaded documents
             refreshUploadedDocsIndex();
-            // Do not load previous chat: start blank per requirements
-            renderChat();
             // Update button state after initialization
             updateNewChatButtonState();
             // Default to chat view in new layout
