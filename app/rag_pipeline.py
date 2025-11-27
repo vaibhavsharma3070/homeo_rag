@@ -74,22 +74,91 @@ Rewritten question:"""
             logger.warning(f"Pronoun resolution failed: {e}, using original query")
             return query
 
+    def _apply_personalization_to_response(self, response: str, user_id: Optional[int] = None) -> str:
+        """Apply user personalization to any response."""
+        if not user_id or not hasattr(self.vector_store, 'get_user_personalization'):
+            return response
+        
+        try:
+            personalization = self.vector_store.get_user_personalization(user_id)
+            if not personalization:
+                return response
+            
+            # Check if there's actually any personalization to apply (handle empty strings)
+            has_custom_instructions = bool(personalization.get('custom_instructions', '').strip())
+            has_nickname = bool(personalization.get('nickname', '').strip())
+            tone = personalization.get('base_style_tone', 'default')
+            has_custom_tone = tone and tone != 'default'
+            
+            # If no personalization settings exist, return original response
+            if not (has_custom_instructions or has_nickname or has_custom_tone):
+                logger.info(f"No personalization settings found for user {user_id}, returning original response")
+                return response
+            
+            # Build a refinement prompt only if we have something to personalize
+            refinement_parts = []
+            
+            if has_custom_instructions:
+                refinement_parts.append(f"User's custom instructions: {personalization['custom_instructions']}")
+            
+            if has_nickname:
+                refinement_parts.append(f"User's preferred name: {personalization['nickname']}")
+            
+            if has_custom_tone:
+                tone_map = {
+                    'professional': 'Use a professional and formal tone.',
+                    'casual': 'Use a casual and friendly tone.',
+                    'friendly': 'Use a warm and approachable tone.',
+                    'formal': 'Use a strictly formal and business-like tone.'
+                }
+                if tone in tone_map:
+                    refinement_parts.append(tone_map[tone])
+            
+            if not refinement_parts:
+                logger.info(f"No valid personalization rules for user {user_id}, returning original response")
+                return response
+            
+            # Build the full prompt
+            full_prompt = f"""Original response: {response}
+
+    User preferences:
+    {chr(10).join(refinement_parts)}
+
+    Task: Rewrite the response to match the user's preferences above. Keep all factual content exactly the same. Return ONLY the rewritten response with no explanations or meta-commentary.
+
+    Rewritten response:"""
+            
+            logger.info(f"Applying personalization for user {user_id}")
+            personalized = self.llm_connector.generate_response(full_prompt).strip()
+            
+            # Validate the response isn't the prompt itself
+            if "rewrite" in personalized.lower() or "original response" in personalized.lower():
+                logger.warning("LLM returned the prompt instead of rewriting, using original response")
+                return response
+                
+            return personalized
+            
+        except Exception as e:
+            logger.warning(f"Could not apply personalization: {e}")
+            return response
+
     def process_query(
         self, 
         query: str, 
         top_k: int = 5, 
         min_score: float = 0.1, 
         session_id: Optional[str] = None, 
-        history_turns: int = 4
+        history_turns: int = 4,
+        user_id: Optional[int] = None
     ) -> Dict[str, Any]:
         """Process query with agent-first approach, fallback to vector search."""
         try:
             logger.info(f"Processing query: '{query}'")
 
             # Handle small talk
-            if self._is_small_talk(query):
+            if self._is_small_talk(query,user_id):
                 logger.info("Small talk detected - bypassing KB")
-                answer = self._generate_small_talk_response(query)
+                answer = self._generate_small_talk_response(query,user_id=user_id)
                 return self._create_response(query, answer, [], [], 'high', {'bypass': 'small_talk'})
             
             # Load history
@@ -104,6 +173,7 @@ Rewritten question:"""
                     logger.info(f"Loaded {len(recent)} history messages")
                 except Exception as e:
                     logger.warning(f"Failed to load history: {e}")
+                    logger.warning(f"Could not get user_id: {e}")
             
             # Resolve pronouns in query using conversation history
             original_query = query
@@ -120,7 +190,7 @@ Rewritten question:"""
             agent_failed = False
             
             try:
-                agent_result = self.vector_store.search_with_agent(query, history=history_list)
+                agent_result = self.vector_store.search_with_agent(query, history=history_list, user_id=user_id)
                 
                 # Check if agent result is actually useful
                 if agent_result:
@@ -153,23 +223,37 @@ Rewritten question:"""
                         logger.warning(f"Agent response preview: '{agent_result[:100]}'")
                         agent_result = None  # Force fallback
                         agent_failed = True
+                    
                     else:
                         logger.info("✅ Agent successfully answered the query")
                         
-                        return self._create_response(
-                            original_query,  # Return original query in response
+                        # ✅ GET ACTUAL SOURCES FROM VECTOR SEARCH
+                        agent_sources = []
+                        try:
+                            source_results = self.vector_store.search(query, top_k=3)
+                            if source_results:
+                                agent_sources = self._create_sources(source_results)
+                                logger.info(f"✓ Fetched {len(agent_sources)} source(s) for agent result")
+                        except Exception as src_error:
+                            logger.warning(f"Could not fetch sources for agent result: {src_error}")
+                        
+                        print(f"🔍 DEBUG before personalized_answer: agent_result={agent_result}, user_id={user_id}")
+                        personalized_answer = self._apply_personalization_to_response(
                             agent_result, 
-                            [agent_result[:500]], 
-                            [{
-                                'filename': 'Knowledge Base',
-                                'document_id': 0,
-                                'relevance_score': 0.95,
-                                'preview': agent_result[:100] + "...",
-                                'metadata': {'search_method': 'database_agent'}
-                            }], 
+                            user_id=user_id
+                        )
+                        
+                        # ✅ USE REAL SOURCES (with actual filenames)
+                        context_preview = [agent_result[:500]] if agent_result else []
+                        
+                        return self._create_response(
+                            original_query,
+                            personalized_answer, 
+                            context_preview, 
+                            agent_sources,  # ✅ Real filenames from vector search
                             'high', 
                             {
-                                'total_sources': 1,
+                                'total_sources': len(agent_sources),
                                 'avg_relevance_score': 0.95,
                                 'search_method': 'agent',
                                 'llm_provider': 'Gemini-Agent',
@@ -212,7 +296,7 @@ Rewritten question:"""
                 logger.info("✓ Using vector search results to generate answer")
                 context_chunks = self._prepare_context(filtered)
                 sources = self._create_sources(filtered)
-                answer = self._generate_response(query, context_chunks, history_text)
+                answer = self._generate_response(query, context_chunks, history_text, user_id=user_id)
 
                 avg_score = sum(r['score'] for r in filtered) / len(filtered)
                 confidence = self._calculate_confidence(avg_score)
@@ -291,54 +375,99 @@ Rewritten question:"""
             'metadata': top.get('metadata', {})
         }]
 
-    def _generate_response(self, query: str, context_chunks: List[str], history: str = "") -> str:
-            """Generate LLM response with context and history."""
-            
-            if not context_chunks and not history:
-                return "I don't have information about this."
+    def _generate_response(self, query: str, context_chunks: List[str], history: str = "", user_id: Optional[int] = None) -> str:
+        """Generate LLM response with context, history, and user personalization."""
+        
+        if not context_chunks and not history:
+            return "I don't have information about this."
 
-            context_block = "\n\n".join([f"[{i+1}] {c}" for i, c in enumerate(context_chunks)])
-            
-            # Build system prompt
-
-            system_parts = ["You are a knowledgeable assistant. Answer questions using the provided information."]
-            
-            if history:
-                system_parts.append(f"\n## Recent Conversation:\n{history}")
-            
-            system_parts.append(f"\n## Knowledge Base:\n{context_block}")
-            system_parts.append(f"\n## User Question:\n{query}")
-            system_parts.append("""
+        context_block = "\n\n".join([f"[{i+1}] {c}" for i, c in enumerate(context_chunks)])
+        
+        # Build system prompt
+        system_parts = ["You are a knowledgeable assistant. Answer questions using the provided information."]
+        
+        # Add user personalization if available
+        print(f"🔍 DEBUG: user_id={user_id}, hasattr(get_user_personalization)={hasattr(self.vector_store, 'get_user_personalization')}, condition_result={user_id and hasattr(self.vector_store, 'get_user_personalization')}")
+        if user_id and hasattr(self.vector_store, 'get_user_personalization'):
+            try:
+                personalization = self.vector_store.get_user_personalization(user_id)
+                if personalization:
+                    print(f"📥 Personalization details FETCHED for user_id={user_id} in RAG pipeline: {personalization}")
+                    # Add custom instructions
+                    if personalization.get('custom_instructions'):
+                        print('added custom instructions')
+                        system_parts.append(f"\n## User's Custom Instructions:\n{personalization['custom_instructions']}")
+                    
+                    # Add user context
+                    user_context_parts = []
+                    if personalization.get('nickname'):
+                        print('added')
+                        user_context_parts.append(f"User's preferred name: {personalization['nickname']}")
+                    if personalization.get('occupation'):
+                        print('added occupation')
+                        user_context_parts.append(f"User's occupation: {personalization['occupation']}")
+                    if personalization.get('more_about_you'):
+                        print('added more about you')
+                        user_context_parts.append(f"About user: {personalization['more_about_you']}")
+                    
+                    if user_context_parts:
+                        system_parts.append(f"\n## User Context:\n" + "\n".join(user_context_parts))
+                    
+                    # Add style/tone preferences
+                    tone = personalization.get('base_style_tone', 'default')
+                    if tone != 'default':
+                        tone_instructions = {
+                            'professional': 'Use a professional and formal tone.',
+                            'casual': 'Use a casual and friendly tone.',
+                            'friendly': 'Use a warm and approachable tone.',
+                            'formal': 'Use a strictly formal and business-like tone.'
+                        }
+                        if tone in tone_instructions:
+                            system_parts.append(f"\n## Response Style:\n{tone_instructions[tone]}")
+            except Exception as e:
+                logger.warning(f"Could not load personalization: {e}")
+        
+        if history:
+            system_parts.append(f"\n## Recent Conversation:\n{history}")
+        
+        system_parts.append(f"\n## Knowledge Base:\n{context_block}")
+        system_parts.append(f"\n## User Question:\n{query}")
+        system_parts.append(f"""
     ## Instructions:
     - If the question uses pronouns (he/she/it/they/this/that), check Recent Conversation to understand the reference
     - Answer based on the Knowledge Base information
     - Be conversational and natural
+    - Follow any custom instructions provided by the user
+    - Use the user's preferred name if provided
     - Don't mention "Knowledge Base" or "conversation history" in your response
     - ONLY use information from the Knowledge Base and Recent Conversation above
     - Do NOT use external knowledge or make assumptions
-    - If user will gave you the their name you can use their name in the response as for example: "Hello John, how can I help you today?"
-    - please don't add I found 6 records related to "xyz" this kind of information in the response.
     - Please don't add any markdown formatting in the response.
+    - Do NOT use multiple languages in the response, Answer must be only in any one language.
+    - Please Don't use Here's the rewritten response, adhering to the user's preferences while maintaining the factual content:, From database these kind of words in the response.
+    
+    ## RULES:
+    - Please Don't be hallucinating, if you don't have the information, say so.
+    - Please Don't be too verbose, be concise and to the point.
 
     Answer:""")
+        
+        prompt = "\n".join(system_parts)
+        
+        try:
+            logger.info(f"Sending prompt to LLM ({len(context_block)} chars context)")
+            response = self.llm_connector.generate_response(prompt)
+            logger.info(f"LLM response received ({len(response)} chars)")
             
-            prompt = "\n".join(system_parts)
-            
-            try:
-                print('prompt =========================================== ',prompt)
-                logger.info(f"Sending prompt to LLM ({len(context_block)} chars context)")
-                response = self.llm_connector.generate_response(prompt)
-                logger.info(f"LLM response received ({len(response)} chars)")
-                
-                if len(response.strip()) < 20:
-                    logger.warning("Response too short, using fallback")
-                    return ". ".join(context_chunks[0].split('. ')[:3]) + "."
-                
-                return response.strip()
-                
-            except Exception as e:
-                logger.error(f"LLM error: {e}")
+            if len(response.strip()) < 20:
+                logger.warning("Response too short, using fallback")
                 return ". ".join(context_chunks[0].split('. ')[:3]) + "."
+            
+            return response.strip()
+            
+        except Exception as e:
+            logger.error(f"LLM error: {e}")
+            return ". ".join(context_chunks[0].split('. ')[:3]) + "."
 
     def reform_query(self, query: str, history: str = "") -> str:
         """Generate LLM response with context and history."""
@@ -382,7 +511,7 @@ Rewritten question:"""
             return query
 
             
-    def _is_small_talk(self, query: str) -> bool:
+    def _is_small_talk(self, query: str, user_id: Optional[int] = None) -> bool:
         """Detect greetings and small talk."""
         q = query.strip().lower()
         if len(q) == 0:
@@ -398,7 +527,7 @@ Rewritten question:"""
         
         return False
 
-    def _generate_small_talk_response(self, text: str) -> str:
+    def _generate_small_talk_response(self, text: str, user_id: Optional[int] = None) -> str:
         """Generate friendly response for greetings."""
         prompt = f"""Respond warmly to this greeting in 1-2 sentences:
 
@@ -407,7 +536,12 @@ User: {text}
 Response:"""
         
         try:
-            return self.llm_connector.generate_response(prompt).strip()
+            response = self.llm_connector.generate_response(prompt).strip()
+            personalized_answer = self._apply_personalization_to_response(
+                response, 
+                user_id=user_id
+            )
+            return personalized_answer
         except:
             return "Hello! How can I help you today?"
 

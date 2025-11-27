@@ -7,7 +7,7 @@ import sys
 from pathlib import Path
 import json
 import re
-from typing import List, Dict, Any, Tuple
+from typing import List, Dict, Any, Optional, Tuple
 
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain.tools import tool
@@ -38,7 +38,7 @@ os.environ["GOOGLE_API_KEY"] = settings.gemini_api_key
 
 model = ChatGoogleGenerativeAI(
     model=settings.gemini_model,
-    temperature=0.0,
+    temperature=0.2,
 )
 
 # ----------------------
@@ -418,7 +418,7 @@ def query_knowledge_base(user_question: str) -> str:
 tools = [query_knowledge_base]
 model_with_tools = model.bind_tools(tools)
 
-def run_agent(user_input: str, history: List[Dict[str, str]] = None, max_iterations: int = 5) -> str:
+def run_agent(user_input: str, history: List[Dict[str, str]] = None, max_iterations: int = 5, user_id: Optional[int] = None, vector_store = None) -> str:
     """Run the agent with conversation history context."""
     
     history_context = ""
@@ -427,26 +427,24 @@ def run_agent(user_input: str, history: List[Dict[str, str]] = None, max_iterati
     
     system_content = """You are a helpful medical records assistant with access to a patient database.
 
-CRITICAL RULES:
-1. ALWAYS use the query_knowledge_base tool to search for information
-2. The tool returns RAW patient records - you must extract and present the relevant information
-3. Check conversation history for context (pronouns like "he/she/also/too" refer to previous subjects)
-4. Give direct, natural answers in a conversational tone
-5. Present information as if you're reading from patient files
-6. If multiple records match, mention the most relevant one or ask for clarification
-7. If tool returns "NO_RESULTS_FOUND", say you don't have that information
+    **CRITICAL REQUIREMENT:**
+    After you receive tool results from query_knowledge_base, you MUST ALWAYS write a natural language summary of the data.
+    NEVER return empty content. Even if the data is minimal, you must describe what you found.
 
-OUTPUT FORMAT:
-- For simple queries (name, contact, address): Give direct answer
-  Example: "The contact number is +1-555-678-1234."
-  
-- For detailed queries (patient info): Give a brief summary
-  Example: "John Doe is a 34-year-old male engineer who visited on November 3, 2025..."
+    STRICT RULES:
+    1. ALWAYS use the query_knowledge_base tool first to search for information
+    2. After receiving tool results, you MUST write at least 2-3 sentences describing the data
+    3. If the tool returns patient records, extract key details (name, age, condition, treatment)
+    4. Format your response naturally, as if explaining to a colleague
+    5. If tool returns "NO_RESULTS_FOUND", state clearly: "I don't have information about that patient in the database"
 
-- Never say: "I found X records", "According to the database", "The search returned"
-- Never return empty responses - always provide an answer based on tool results
+    REQUIRED OUTPUT FORMAT:
+    ✅ Good: "Patient H002 is a 41-year-old male who visited on August 12, 2024 with multiple filiform warts..."
+    ✅ Good: "The patient presented with warts for 8 months causing cosmetic discomfort..."
+    ❌ Bad: Empty response
+    ❌ Bad: Just metadata without description
 
-**IMPORTANT: After receiving tool results, you MUST provide a natural language answer. Never return empty response.**"""
+    **YOU MUST PROVIDE TEXT OUTPUT. EMPTY RESPONSES ARE NOT ACCEPTABLE.**"""
 
     if history_context:
         system_content += f"\n\nRecent conversation:\n{history_context}\n\nUse this context to understand pronouns and references."
@@ -515,23 +513,67 @@ OUTPUT FORMAT:
         else:
             # No tool calls - this is the final answer
             print('\n✅ Final answer received from model')
+            print('response.content ===========================================', response.content)
             print(f'📝 Response content: "{response.content[:200]}..."')
             
             if not response.content or response.content.strip() == "":
-                print("⚠️ WARNING: LLM returned empty content - using fallback")
-                # Check if we have tool results in message history
+                print("⚠️ WARNING: LLM returned empty content - forcing retry with explicit instructions")
+                
+                # Find the most recent tool result
+                tool_result_content = None
                 for msg in reversed(messages):
                     if isinstance(msg, ToolMessage) and msg.content != "NO_RESULTS_FOUND":
-                        # Extract first few lines as fallback
-                        lines = msg.content.split('\n')[:5]
-                        return "Based on the records: " + ' '.join(lines)
-                return "I couldn't generate a proper response from the data found."
+                        tool_result_content = msg.content
+                        break
+                
+                if tool_result_content:
+                    # Force a response with very explicit prompt
+                    retry_message = HumanMessage(content=f"""You returned an empty response. This is not acceptable.
+
+        Here is the patient data you received from the tool:
+        {tool_result_content[:500]}
+
+        YOU MUST write a 2-3 sentence summary of this patient information RIGHT NOW.
+        Include: Patient ID, age, main complaint, and any treatment mentioned.
+
+        Write the summary now:""")
+                    
+                    messages.append(retry_message)
+                    
+                    try:
+                        print("🔄 Sending retry request with explicit instructions...")
+                        retry_response = model_with_tools.invoke(messages)
+                        
+                        print(f"📨 Retry response content: '{retry_response.content}'")
+                        
+                        if retry_response.content and retry_response.content.strip():
+                            print(f"✅ Retry successful! Got {len(retry_response.content)} chars")
+                            return retry_response.content.strip()
+                        else:
+                            print("❌ Retry also returned empty - using fallback")
+                    except Exception as retry_error:
+                        print(f"❌ Retry failed with error: {retry_error}")
+                
+                # Final fallback - extract from tool results
+                print("⚠️ Using manual fallback to extract patient info")
+                for msg in reversed(messages):
+                    if isinstance(msg, ToolMessage) and msg.content != "NO_RESULTS_FOUND":
+                        # Parse the tool result and create a basic summary
+                        lines = msg.content.split('\n')
+                        patient_info = []
+                        for line in lines[:15]:  # First 15 lines usually have key info
+                            if any(key in line for key in ['Patient ID:', 'Age:', 'Gender:', 'Chief Complaints:', 'Date of Visit:']):
+                                patient_info.append(line.strip())
+                        
+                        if patient_info:
+                            return "Patient details: " + " | ".join(patient_info)
+                        else:
+                            return "Based on the records: " + ' '.join(lines[:5])
+                
+                return "I found patient records but couldn't generate a proper summary. Please try again."
             
             print(f"✅ Returning final answer ({len(response.content)} chars)")
             return response.content
-
-    print("\n⚠️ Max iterations reached without final answer")
-    return "I couldn't find a complete answer after multiple attempts."
 
 # ----------------------
 # Main Execution

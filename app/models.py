@@ -128,3 +128,18 @@ class UserInfo(BaseModel):
     id: int
     username: str
     created_at: int
+
+class PersonalizationRequest(BaseModel):
+    custom_instructions: str = ""
+    nickname: str = ""
+    occupation: str = ""
+    more_about_you: str = ""
+    base_style_tone: str = "default"
+
+class PersonalizationResponse(BaseModel):
+    custom_instructions: str
+    nickname: str
+    occupation: str
+    more_about_you: str
+    base_style_tone: str
+    updated_at: Optional[int] = None

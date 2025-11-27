@@ -237,6 +237,11 @@ async def login(request: LoginRequest):
         if not user:
             raise HTTPException(status_code=401, detail="Invalid username or password")
         
+        # Get personalization
+        personalization = rag_pipeline.vector_store.get_user_personalization(user["id"])
+        if personalization:
+            user.update(personalization)
+        
         # Create JWT token
         token = create_access_token(user["username"], user["id"])
         
@@ -258,6 +263,55 @@ async def get_current_user_info(current_user: Optional[Dict[str, Any]] = Depends
     if not current_user:
         raise HTTPException(status_code=401, detail="Not authenticated")
     return current_user
+
+@app.get("/api/auth/personalization", tags=["Authentication"])
+async def get_personalization(current_user: Optional[Dict[str, Any]] = Depends(get_current_user)):
+    """Get current user's personalization settings."""
+    if not current_user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    
+    try:
+        personalization = rag_pipeline.vector_store.get_user_personalization(current_user["id"])
+        
+        if not personalization:
+            # Return default empty settings
+            return {
+                "custom_instructions": "",
+                "nickname": "",
+                "occupation": "",
+                "more_about_you": "",
+                "base_style_tone": "default"
+            }
+        
+        return personalization
+    except Exception as e:
+        logger.error(f"Error getting personalization: {e}")
+        raise HTTPException(status_code=500, detail=f"Error getting personalization: {str(e)}")
+
+@app.post("/api/auth/personalization", tags=["Authentication"])
+async def save_personalization(
+    personalization: Dict[str, Any],
+    current_user: Optional[Dict[str, Any]] = Depends(get_current_user)
+):
+    """Save user's personalization settings."""
+    if not current_user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    
+    try:
+        success = rag_pipeline.vector_store.save_user_personalization(
+            current_user["id"], 
+            personalization
+        )
+        
+        if success:
+            return {"success": True, "message": "Personalization saved successfully"}
+        else:
+            raise HTTPException(status_code=500, detail="Failed to save personalization")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error saving personalization: {e}")
+        raise HTTPException(status_code=500, detail=f"Error saving personalization: {str(e)}")
 
 @app.post("/api/auth/logout", tags=["Authentication"])
 async def logout():
@@ -534,11 +588,14 @@ async def get_ingest_progress(job_id: str):
         }
 
 @app.post("/api/query", response_model=QueryResponse, tags=["RAG"])
-async def process_query(request: QueryRequest):
+async def process_query(request: QueryRequest,current_user: Optional[Dict[str, Any]] = Depends(get_current_user)):
     """Process a query through the RAG pipeline."""
     try:
+        # Extract user_id before using it
+        user_id = current_user.get("id") if current_user else None
+        
         # Process, passing session_id to include conversational history in context
-        result = rag_pipeline.process_query(request.query, request.top_k, session_id=request.session_id)
+        result = rag_pipeline.process_query(request.query, request.top_k, session_id=request.session_id, user_id=user_id)
         
         # Persist chat messages if database available
         try:

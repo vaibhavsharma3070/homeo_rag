@@ -145,6 +145,21 @@ class PGVectorStore:
 
         self.UserORM = UserORM
 
+        class UserPersonalizationORM(Base):
+            __tablename__ = "user_personalization"
+            __table_args__ = {"extend_existing": True}
+
+            id = Column(Integer, primary_key=True, autoincrement=True)
+            user_id = Column(Integer, nullable=False, unique=True, index=True)
+            custom_instructions = Column(Text)
+            nickname = Column(String(100))
+            occupation = Column(String(200))
+            more_about_you = Column(Text)
+            base_style_tone = Column(String(50), default='default')
+            updated_at = Column(Integer, nullable=False, default=lambda: int(time.time()))
+
+        self.UserPersonalizationORM = UserPersonalizationORM
+
     def _setup_database(self):
         """Setup database with vector extension and tables."""
         try:
@@ -205,6 +220,64 @@ class PGVectorStore:
                 }
                 for r in rows
             ]
+
+    def save_user_personalization(self, user_id: int, personalization: Dict[str, Any]) -> bool:
+        """Save or update user personalization settings."""
+        try:
+            with self.SessionLocal() as db:
+                existing = db.query(self.UserPersonalizationORM).filter_by(user_id=user_id).first()
+                
+                if existing:
+                    # Update existing
+                    existing.custom_instructions = personalization.get('custom_instructions', '')
+                    existing.nickname = personalization.get('nickname', '')
+                    existing.occupation = personalization.get('occupation', '')
+                    existing.more_about_you = personalization.get('more_about_you', '')
+                    existing.base_style_tone = personalization.get('base_style_tone', 'default')
+                    existing.updated_at = int(time.time())
+                else:
+                    # Create new
+                    new_pref = self.UserPersonalizationORM(
+                        user_id=user_id,
+                        custom_instructions=personalization.get('custom_instructions', ''),
+                        nickname=personalization.get('nickname', ''),
+                        occupation=personalization.get('occupation', ''),
+                        more_about_you=personalization.get('more_about_you', ''),
+                        base_style_tone=personalization.get('base_style_tone', 'default'),
+                        updated_at=int(time.time())
+                    )
+                    db.add(new_pref)
+                
+                db.commit()
+                logger.info(f"Saved personalization for user {user_id}")
+                print(f"✅ Personalization details SAVED for user_id={user_id}: {personalization}")
+                return True
+        except Exception as e:
+            logger.error(f"Error saving personalization: {e}")
+            return False
+
+    def get_user_personalization(self, user_id: int) -> Optional[Dict[str, Any]]:
+        """Get user personalization settings."""
+        try:
+            with self.SessionLocal() as db:
+                pref = db.query(self.UserPersonalizationORM).filter_by(user_id=user_id).first()
+                
+                if pref:
+                    personalization_data = {
+                        "custom_instructions": pref.custom_instructions or "",
+                        "nickname": pref.nickname or "",
+                        "occupation": pref.occupation or "",
+                        "more_about_you": pref.more_about_you or "",
+                        "base_style_tone": pref.base_style_tone or "default",
+                        "updated_at": pref.updated_at
+                    }
+                    print(f"📥 Personalization details FETCHED for user_id={user_id}: {personalization_data}")
+                    return personalization_data
+                print(f"⚠️ No personalization found for user_id={user_id}")
+                return None
+        except Exception as e:
+            logger.error(f"Error getting personalization: {e}")
+            return None
 
     def get_all_chat_sessions(self) -> List[Dict[str, Any]]:
         """Get all chat sessions with their first user message as title, ordered by most recent."""
@@ -530,14 +603,14 @@ class PGVectorStore:
         result = self.add_documents_parallel(documents)
         return result['success']
 
-    def search_with_agent(self, query: str, history: List[Dict[str, str]] = None) -> Optional[str]:
+    def search_with_agent(self, query: str, history: List[Dict[str, str]] = None, user_id: Optional[int] = None) -> Optional[str]:
         """Search using the intelligent agent with conversation history."""
         try:
             from app.agent import run_agent
             logger.info(f"Attempting agent search for: '{query}'")
             print('query =========================================== ',query)
             print('history =========================================== ',history)
-            result = run_agent(query, history=history or [], max_iterations=5)
+            result = run_agent(query, history=history or [], max_iterations=5, user_id=user_id)
             print('vector result =========================================== ',result)
             
             # Check if result exists and is valid

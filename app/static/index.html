@@ -234,6 +234,17 @@
             font-size: 1rem;
             background: #101010;
             color: #e5e7eb;
+            resize: none;
+            overflow-y: hidden;
+            min-height: 48px;
+            max-height: 96px;
+            line-height: 1.5;
+            font-family: inherit;
+            transition: max-height 0.2s ease;
+        }
+        .chat-text-input.expanded {
+            max-height: 96px;
+            overflow-y: auto;
         }
         .chat-text-input:focus {
             outline: none;
@@ -529,6 +540,63 @@
                 opacity: 1;
                 transform: translateY(0) scale(1);
             }
+        }
+
+        /* User Dropdown Menu Styles */
+        .user-dropdown {
+            position: relative;
+        }
+
+        .user-dropdown-menu {
+            display: none;
+            position: absolute;
+            bottom: 100%;
+            left: 0;
+            margin-bottom: 8px;
+            background: #2a2a2a;
+            border-radius: 8px;
+            padding: 8px;
+            min-width: 200px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+            z-index: 1000;
+            animation: dropdownFadeIn 0.2s ease;
+        }
+
+        .user-dropdown-menu.show {
+            display: block;
+        }
+
+        @keyframes dropdownFadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(-5px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .user-dropdown-item {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 10px 12px;
+            color: #e5e7eb;
+            cursor: pointer;
+            border-radius: 6px;
+            transition: background 0.2s;
+            font-size: 0.9rem;
+        }
+
+        .user-dropdown-item:hover {
+            background: rgba(255, 255, 255, 0.1);
+        }
+
+        .user-dropdown-item svg {
+            width: 18px;
+            height: 18px;
+            stroke: currentColor;
         }
 
         .modal-header {
@@ -830,6 +898,68 @@
         </div>
     </div>
 
+    <!-- Personalization Modal -->
+    <div class="modal-overlay" id="personalizationModal">
+        <div class="modal-content" style="max-width: 700px; max-height: 90vh; overflow-y: auto;">
+            <button class="modal-close" onclick="hidePersonalizationModal()">&times;</button>
+            <div class="modal-header">
+                <h3 class="modal-title" style="font-size: 1.5rem; font-weight: 600; color: #e5e7eb;">Personalization</h3>
+            </div>
+            <div class="modal-body" style="padding: 24px;">
+                <form id="personalizationForm" onsubmit="savePersonalization(event)">
+                    <!-- Base style and tone -->
+                    <div style="margin-bottom: 32px;">
+                        <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 8px;">
+                            <div>
+                                <h4 style="color: #e5e7eb; font-size: 1rem; font-weight: 600; margin-bottom: 4px;">Base style and tone</h4>
+                                <p style="color: #9ca3af; font-size: 0.875rem; margin: 0;">Set the style and tone of how the assistant responds to you. This doesn't impact the assistant's capabilities.</p>
+                            </div>
+                            <select id="baseStyleTone" style="padding: 8px 12px; background: #2a2a2a; border: 1px solid #3a3a3a; border-radius: 6px; color: #e5e7eb; font-size: 0.9rem; cursor: pointer; min-width: 150px;">
+                                <option value="default">Default</option>
+                                <option value="professional">Professional</option>
+                                <option value="casual">Casual</option>
+                                <option value="friendly">Friendly</option>
+                                <option value="formal">Formal</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <!-- Custom instructions -->
+                    <div style="margin-bottom: 32px;">
+                        <h4 style="color: #e5e7eb; font-size: 1rem; font-weight: 600; margin-bottom: 8px;">Custom instructions</h4>
+                        <textarea id="customInstructions" rows="4" style="width: 100%; padding: 12px; background: #2a2a2a; border: 1px solid #3a3a3a; border-radius: 6px; color: #e5e7eb; font-size: 0.9rem; font-family: inherit; resize: vertical;" placeholder="Enter your custom instructions or preferences for how the assistant should respond to you..."></textarea>
+                    </div>
+
+                    <!-- About you -->
+                    <div style="margin-bottom: 32px;">
+                        <h4 style="color: #e5e7eb; font-size: 1rem; font-weight: 600; margin-bottom: 16px;">About you</h4>
+                        <div style="margin-bottom: 16px;">
+                            <label for="nickname" style="display: block; margin-bottom: 6px; color: #d1d5db; font-size: 0.9rem;">Nickname</label>
+                            <input type="text" id="nickname" style="width: 100%; padding: 10px; background: #2a2a2a; border: 1px solid #3a3a3a; border-radius: 6px; color: #e5e7eb; font-size: 0.9rem;" placeholder="Enter your nickname">
+                        </div>
+                        <div>
+                            <label for="occupation" style="display: block; margin-bottom: 6px; color: #d1d5db; font-size: 0.9rem;">Occupation</label>
+                            <input type="text" id="occupation" style="width: 100%; padding: 10px; background: #2a2a2a; border: 1px solid #3a3a3a; border-radius: 6px; color: #e5e7eb; font-size: 0.9rem;" placeholder="Enter your occupation">
+                        </div>
+                    </div>
+
+                    <!-- More about you -->
+                    <div style="margin-bottom: 32px;">
+                        <h4 style="color: #e5e7eb; font-size: 1rem; font-weight: 600; margin-bottom: 8px;">More about you</h4>
+                        <textarea id="moreAboutYou" rows="3" style="width: 100%; padding: 12px; background: #2a2a2a; border: 1px solid #3a3a3a; border-radius: 6px; color: #e5e7eb; font-size: 0.9rem; font-family: inherit; resize: vertical;" placeholder="Interests, values, or preferences to keep in mind"></textarea>
+                    </div>
+
+                    <div id="personalizationError" style="color: #e53e3e; font-size: 0.9rem; margin-bottom: 16px; display: none;"></div>
+
+                    <div style="display: flex; gap: 10px; justify-content: flex-end; border-top: 1px solid #2a2a2a; padding-top: 20px;">
+                        <button type="button" class="modal-btn" onclick="hidePersonalizationModal()" style="background: #3a3a3a;">Cancel</button>
+                        <button type="submit" class="modal-btn modal-btn-primary" id="savePersonalizationBtn">Save</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
     <div class="sidebar">
         <div class="sidebar-header">
             <div class="brand">🌿 Homeopathy RAG</div>
@@ -869,19 +999,31 @@
                 </div>
             </div>
             <div id="user-info" style="margin-top: 20px; padding: 10px; border-top: 1px solid #2a2a2a; display: none;">
-                <div style="display: flex; align-items: center; gap: 8px; color: #9ca3af; font-size: 0.85rem;">
-                    <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                        <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
-                        <circle cx="12" cy="7" r="4"></circle>
-                    </svg>
-                    <span id="user-name" style="flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"></span>
-                    <button onclick="handleLogout()" style="background: transparent; border: none; color: #9ca3af; cursor: pointer; padding: 4px; border-radius: 4px;" title="Logout">
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                            <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path>
-                            <polyline points="16 17 21 12 16 7"></polyline>
-                            <line x1="21" y1="12" x2="9" y2="12"></line>
+                <div class="user-dropdown">
+                    <div style="display: flex; align-items: center; gap: 8px; color: #9ca3af; font-size: 0.85rem;">
+                        <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
+                            <circle cx="12" cy="7" r="4"></circle>
                         </svg>
-                    </button>
+                        <span id="user-name" style="flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; padding: 4px; border-radius: 4px; transition: background 0.2s;" onclick="toggleUserDropdown(event)" onmouseover="this.style.background='rgba(255,255,255,0.05)'" onmouseout="this.style.background='transparent'"></span>
+                    </div>
+                    <div class="user-dropdown-menu" id="userDropdownMenu">
+                        <div class="user-dropdown-item" onclick="openPersonalization()">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <circle cx="12" cy="12" r="3"></circle>
+                                <path d="M12 1v6m0 6v6M5.64 5.64l4.24 4.24m4.24 4.24l4.24 4.24M1 12h6m6 0h6M5.64 18.36l4.24-4.24m4.24-4.24l4.24-4.24"></path>
+                            </svg>
+                            <span>Personalization</span>
+                        </div>
+                        <div class="user-dropdown-item" onclick="handleLogout()">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path>
+                                <polyline points="16 17 21 12 16 7"></polyline>
+                                <line x1="21" y1="12" x2="9" y2="12"></line>
+                            </svg>
+                            <span>Log out</span>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -942,11 +1084,7 @@
                 </div>
                 <div class="chat-messages" id="chat-messages"></div>
                 <div class="chat-input-bar">
-                    <input type="text" class="chat-text-input" id="chat-input" placeholder="Ask your question about homeopathy...">
-                    <div class="top-k-control" style="align-items:center; display:flex; gap:8px;">
-                        <label for="chat-top-k">Results:</label>
-                        <input type="number" class="top-k-input" id="chat-top-k" value="5" min="1" max="20">
-                    </div>
+                    <textarea class="chat-text-input" id="chat-input" placeholder="Ask your question about homeopathy..." rows="1"></textarea>
                     <button class="btn" id="send-btn" onclick="sendChatMessage()">➡️ Send</button>
                 </div>
             </div>
@@ -1283,8 +1421,171 @@
             }
         }
 
+        // User dropdown functions
+        function toggleUserDropdown(event) {
+            event.stopPropagation();
+            const dropdown = document.getElementById('userDropdownMenu');
+            if (dropdown) {
+                const isShowing = dropdown.classList.contains('show');
+                // Close all dropdowns first
+                closeAllDropdowns();
+                // Toggle this dropdown
+                if (!isShowing) {
+                    dropdown.classList.add('show');
+                }
+            }
+        }
+
+        function closeAllDropdowns() {
+            const dropdown = document.getElementById('userDropdownMenu');
+            if (dropdown) {
+                dropdown.classList.remove('show');
+            }
+        }
+
+        function openPersonalization() {
+            closeAllDropdowns();
+            showPersonalizationModal();
+        }
+
+        // Close dropdown when clicking outside
+        document.addEventListener('click', function(event) {
+            const dropdown = document.getElementById('userDropdownMenu');
+            const userInfo = document.getElementById('user-info');
+            if (dropdown && userInfo && !userInfo.contains(event.target)) {
+                closeAllDropdowns();
+            }
+        });
+
+        // Personalization modal functions
+        async function showPersonalizationModal() {
+            if (!isAuthenticated()) {
+                showLoginModal();
+                return;
+            }
+
+            const modal = document.getElementById('personalizationModal');
+            if (!modal) return;
+
+            // Load current personalization
+            await loadPersonalization();
+
+            modal.classList.add('show');
+            document.body.style.overflow = 'hidden';
+
+            // Setup click outside to close
+            modal.addEventListener('click', function(e) {
+                if (e.target === this) {
+                    hidePersonalizationModal();
+                }
+            });
+        }
+
+        function hidePersonalizationModal() {
+            const modal = document.getElementById('personalizationModal');
+            if (modal) {
+                modal.classList.remove('show');
+                document.body.style.overflow = 'auto';
+            }
+        }
+
+        async function loadPersonalization() {
+            try {
+                const token = getAuthToken();
+                if (!token) return;
+
+                const response = await fetch(`${API_BASE}/api/auth/personalization`, {
+                    headers: {
+                        'Authorization': `Bearer ${token}`
+                    }
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+                    document.getElementById('customInstructions').value = data.custom_instructions || '';
+                    document.getElementById('nickname').value = data.nickname || '';
+                    document.getElementById('occupation').value = data.occupation || '';
+                    document.getElementById('moreAboutYou').value = data.more_about_you || '';
+                    document.getElementById('baseStyleTone').value = data.base_style_tone || 'default';
+                }
+            } catch (error) {
+                console.error('Error loading personalization:', error);
+            }
+        }
+
+        async function savePersonalization(event) {
+            event.preventDefault();
+            
+            if (!isAuthenticated()) {
+                showLoginModal();
+                return;
+            }
+
+            const errorDiv = document.getElementById('personalizationError');
+            const submitBtn = document.getElementById('savePersonalizationBtn');
+            
+            errorDiv.style.display = 'none';
+            errorDiv.textContent = '';
+            submitBtn.disabled = true;
+            submitBtn.textContent = 'Saving...';
+
+            try {
+                const token = getAuthToken();
+                if (!token) {
+                    throw new Error('Not authenticated');
+                }
+
+                const personalization = {
+                    custom_instructions: document.getElementById('customInstructions').value,
+                    nickname: document.getElementById('nickname').value,
+                    occupation: document.getElementById('occupation').value,
+                    more_about_you: document.getElementById('moreAboutYou').value,
+                    base_style_tone: document.getElementById('baseStyleTone').value
+                };
+
+                const response = await fetch(`${API_BASE}/api/auth/personalization`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token}`
+                    },
+                    body: JSON.stringify(personalization)
+                });
+
+                const result = await response.json();
+
+                if (response.ok && result.success) {
+                    hidePersonalizationModal();
+                    showModal('Personalization Saved', 'Your personalization settings have been saved and will be applied to all your conversations.', 'success');
+                    
+                    // Update stored user info if available
+                    const userInfo = getUserInfo();
+                    if (userInfo) {
+                        userInfo.custom_instructions = personalization.custom_instructions;
+                        userInfo.nickname = personalization.nickname;
+                        userInfo.occupation = personalization.occupation;
+                        userInfo.more_about_you = personalization.more_about_you;
+                        userInfo.base_style_tone = personalization.base_style_tone;
+                        localStorage.setItem(USER_INFO_KEY, JSON.stringify(userInfo));
+                        currentUser = userInfo;
+                    }
+                } else {
+                    errorDiv.textContent = result.detail || 'Failed to save personalization';
+                    errorDiv.style.display = 'block';
+                }
+            } catch (error) {
+                errorDiv.textContent = 'Failed to save personalization. Please try again.';
+                errorDiv.style.display = 'block';
+                console.error('Save personalization error:', error);
+            } finally {
+                submitBtn.disabled = false;
+                submitBtn.textContent = 'Save';
+            }
+        }
+
         // Handle logout
         function handleLogout() {
+            closeAllDropdowns();
             showConfirmModal(
                 'Logout',
                 'Are you sure you want to logout?',
@@ -1756,9 +2057,14 @@
             responseArea.innerHTML = '<div class="loading"><div class="spinner"></div>Searching and generating answer...</div>';
             
             try {
+                const token = getAuthToken();
+                const headers = { 'Content-Type': 'application/json' };
+                if (token) {
+                    headers['Authorization'] = `Bearer ${token}`;
+                }
                 const response = await fetch(`${API_BASE}/api/query`, {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: headers,
                     body: JSON.stringify({ query, top_k: topK })
                 });
                 
@@ -2371,15 +2677,14 @@
                         ${m.sources.map(src => {
                             const isUrl = src?.metadata?.document_metadata && src.metadata.document_metadata.source_url;
                             const domain = src?.metadata?.document_metadata?.domain;
-                            const score = typeof src?.relevance_score === 'number' ? src.relevance_score.toFixed(3) : 'N/A';
                             if (isUrl) {
                                 const href = src.metadata.document_metadata.source_url;
                                 const label = domain || href;
-                                return `<div style=\"margin-bottom:8px;\">🌐 <a href=\"${href}\" target=\"_blank\" rel=\"noopener noreferrer\" style=\"color:#fff;text-decoration:underline;\">${label}</a> <span style=\"opacity:.8\">(Score: ${score})</span></div>`;
+                                return `<div style=\"margin-bottom:8px;\">🌐 <a href=\"${href}\" target=\"_blank\" rel=\"noopener noreferrer\" style=\"color:#fff;text-decoration:underline;\">${label}</a></div>`;
                             }
                             const fname = src?.filename || 'Unknown Document';
                             const prev = src?.preview || '';
-                            return `<div style=\"margin-bottom:8px;\">📄 ${fname} <span style=\"opacity:.8\">(Score: ${score})</span><div style=\"opacity:.9;margin-top:4px;\">${prev}</div></div>`;
+                            return `<div style=\"margin-bottom:8px;\">📄 ${fname}<div style=\"opacity:.9;margin-top:4px;\">${prev}</div></div>`;
                         }).join('')}
                     </div>
                 ` : '';
@@ -2404,16 +2709,75 @@
             // Button state is already updated in saveChatHistory()
         }
 
+        // Functions to enable/disable chat input
+        // Update send button state based on input content
+        function updateSendButtonState() {
+            const input = document.getElementById('chat-input');
+            const sendBtn = document.getElementById('send-btn');
+            if (!input || !sendBtn) return;
+            
+            const hasText = input.value.trim().length > 0;
+            const isDisabled = input.disabled;
+            
+            // Disable send button if input is empty or input is disabled (response coming)
+            if (!hasText || isDisabled) {
+                sendBtn.disabled = true;
+                sendBtn.style.opacity = '0.6';
+                sendBtn.style.cursor = 'not-allowed';
+            } else {
+                sendBtn.disabled = false;
+                sendBtn.style.opacity = '1';
+                sendBtn.style.cursor = 'pointer';
+            }
+        }
+
+        function disableChatInput() {
+            const input = document.getElementById('chat-input');
+            const sendBtn = document.getElementById('send-btn');
+            if (input) {
+                input.disabled = true;
+                input.style.opacity = '0.6';
+                input.style.cursor = 'not-allowed';
+            }
+            if (sendBtn) {
+                sendBtn.disabled = true;
+                sendBtn.style.opacity = '0.6';
+                sendBtn.style.cursor = 'not-allowed';
+            }
+        }
+
+        function enableChatInput() {
+            const input = document.getElementById('chat-input');
+            if (input) {
+                input.disabled = false;
+                input.style.opacity = '1';
+                input.style.cursor = 'text';
+                // Automatically focus the input when response is complete
+                setTimeout(() => {
+                    input.focus();
+                }, 100);
+            }
+            // Update send button state (will be disabled if input is empty)
+            updateSendButtonState();
+        }
+
         async function sendChatMessage() {
             const input = document.getElementById('chat-input');
-            const topKEl = document.getElementById('chat-top-k');
             if (!input) return;
             const query = input.value.trim();
-            const topK = parseInt(topKEl?.value || '5');
             if (!query) return;
+
+            // Disable input and send button while processing
+            disableChatInput();
 
             addMessage('user', query);
             input.value = '';
+            // Reset textarea height after sending
+            input.style.height = 'auto';
+            input.classList.remove('expanded');
+            input.style.height = '48px';
+            // Update send button state (will be disabled since input is empty and disabled)
+            updateSendButtonState();
 
             // Typing indicator
             addMessage('ai', '', { typing: true });
@@ -2433,10 +2797,15 @@
                         }
                     } catch (_) { /* proceed without session if API fails */ }
                 }
+                const token = getAuthToken();
+                const headers = { 'Content-Type': 'application/json' };
+                if (token) {
+                    headers['Authorization'] = `Bearer ${token}`;
+                }
                 const response = await fetch(`${API_BASE}/api/query`, {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ query, top_k: topK, session_id: chatSessionId })
+                    headers: headers,
+                    body: JSON.stringify({ query, top_k: 5, session_id: chatSessionId })
                 });
                 const result = await response.json();
                 if (!response.ok) throw new Error(result.detail || 'Query failed');
@@ -2451,6 +2820,8 @@
                 saveChatHistory();
                 renderChat();
                 showModal('Query Failed', `Error: ${error.message}`, 'error');
+                // Re-enable input on error
+                enableChatInput();
             }
         }
 
@@ -2472,6 +2843,8 @@
                     chatMessages[targetIndex].text = fullText;
                     saveChatHistory();
                     renderChat();
+                    // Re-enable input when typewriter completes
+                    enableChatInput();
                     return;
                 }
                 const next = fullText.slice(pos, pos + stepChars);
@@ -2491,18 +2864,60 @@
         // Enter key support and input sanitation for chat input
         const chatInputEl = document.getElementById('chat-input');
         if (chatInputEl) {
+            // Auto-resize textarea function
+            function autoResizeTextarea() {
+                chatInputEl.style.height = 'auto';
+                const scrollHeight = chatInputEl.scrollHeight;
+                const minHeight = 48; // Single line height
+                const maxHeight = 96; // Double height
+                
+                if (scrollHeight > minHeight) {
+                    chatInputEl.classList.add('expanded');
+                    chatInputEl.style.height = Math.min(scrollHeight, maxHeight) + 'px';
+                } else {
+                    chatInputEl.classList.remove('expanded');
+                    chatInputEl.style.height = minHeight + 'px';
+                }
+            }
+
+            // Handle keydown events
             chatInputEl.addEventListener('keydown', function(e) {
                 if (e.key === 'Enter') {
-                    e.preventDefault();
-                    sendChatMessage();
+                    if (e.shiftKey) {
+                        // Shift+Enter: Allow newline and expand textarea (only if not disabled)
+                        if (!this.disabled) {
+                            e.preventDefault();
+                            const start = this.selectionStart;
+                            const end = this.selectionEnd;
+                            const value = this.value;
+                            this.value = value.substring(0, start) + '\n' + value.substring(end);
+                            this.selectionStart = this.selectionEnd = start + 1;
+                            autoResizeTextarea();
+                        }
+                    } else {
+                        // Enter alone: Send message (only if not disabled)
+                        if (!this.disabled) {
+                            e.preventDefault();
+                            sendChatMessage();
+                            // Reset textarea height after sending
+                            setTimeout(() => {
+                                chatInputEl.style.height = 'auto';
+                                chatInputEl.classList.remove('expanded');
+                                chatInputEl.style.height = '48px';
+                            }, 10);
+                        }
+                    }
                 }
-            });
-            chatInputEl.addEventListener('keydown', function(e) {
+                
+                // Prevent leading spaces
                 if ((e.key === ' ' || e.code === 'Space') && this.selectionStart === 0) {
                     e.preventDefault();
                 }
             });
+
+            // Handle input changes for auto-resize and sanitization
             chatInputEl.addEventListener('input', function() {
+                // Remove leading whitespace
                 const originalValue = this.value;
                 const withoutLeading = originalValue.replace(/^\s+/, '');
                 if (originalValue !== withoutLeading) {
@@ -2511,7 +2926,16 @@
                     this.value = withoutLeading;
                     this.setSelectionRange(caret, caret);
                 }
+                // Auto-resize based on content
+                autoResizeTextarea();
+                // Update send button state based on input content
+                updateSendButtonState();
             });
+
+            // Initial resize
+            autoResizeTextarea();
+            // Initial send button state
+            updateSendButtonState();
         }
 
         async function newChat() {
