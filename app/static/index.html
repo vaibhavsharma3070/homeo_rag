@@ -173,7 +173,7 @@
         .chat-wrapper {
             display: flex;
             flex-direction: column;
-            height: 78vh;
+            height: 90vh;
             background: #0d0d0d;
             border: 1px solid #2a2a2a;
             border-radius: 12px;
@@ -213,12 +213,14 @@
             border: 1px solid #145a4a;
             color: #e5fff5;
             border-bottom-right-radius: 6px;
+            word-wrap: break-word;
         }
         .bubble.ai {
             background: #1f2937;
             border: 1px solid #2a2a2a;
             color: #e5e7eb;
             border-bottom-left-radius: 6px;
+            word-wrap: break-word;
         }
         .message-meta {
             font-size: 0.75rem;
@@ -1085,6 +1087,9 @@
                 <div class="chat-messages" id="chat-messages"></div>
                 <div class="chat-input-bar">
                     <textarea class="chat-text-input" id="chat-input" placeholder="Ask your question about homeopathy..." rows="1"></textarea>
+                    <div style="text-align: right; padding: 16px 6px; color: #9ca3af; font-size: 0.8rem;">
+                        <span id="char-count">0</span>/1000
+                    </div>
                     <button class="btn" id="send-btn" onclick="sendChatMessage()">➡️ Send</button>
                 </div>
             </div>
@@ -2718,9 +2723,10 @@
             
             const hasText = input.value.trim().length > 0;
             const isDisabled = input.disabled;
+            const isTooLong = input.value.length > 1000;
             
             // Disable send button if input is empty or input is disabled (response coming)
-            if (!hasText || isDisabled) {
+            if (!hasText || isDisabled || isTooLong) {
                 sendBtn.disabled = true;
                 sendBtn.style.opacity = '0.6';
                 sendBtn.style.cursor = 'not-allowed';
@@ -2766,6 +2772,13 @@
             if (!input) return;
             const query = input.value.trim();
             if (!query) return;
+
+            // Validate query length (max 1000 characters as per API limit)
+            if (query.length > 1000) {
+                showModal('Message Too Long', `Your message is ${query.length} characters long. Please keep it under 1000 characters.`, 'warning');
+                enableChatInput();
+                return;
+            }
 
             // Disable input and send button while processing
             disableChatInput();
@@ -2917,6 +2930,19 @@
 
             // Handle input changes for auto-resize and sanitization
             chatInputEl.addEventListener('input', function() {
+                // Update character count
+                const charCount = document.getElementById('char-count');
+                if (charCount) {
+                    charCount.textContent = this.value.length;
+                    // Change color if approaching limit
+                    if (this.value.length > 900) {
+                        charCount.style.color = '#e53e3e';
+                    } else if (this.value.length > 800) {
+                        charCount.style.color = '#f6ad55';
+                    } else {
+                        charCount.style.color = '#9ca3af';
+                    }
+                }
                 // Remove leading whitespace
                 const originalValue = this.value;
                 const withoutLeading = originalValue.replace(/^\s+/, '');

@@ -148,7 +148,7 @@ Rewritten question:"""
         top_k: int = 5, 
         min_score: float = 0.1, 
         session_id: Optional[str] = None, 
-        history_turns: int = 4,
+        history_turns: int = 25,
         user_id: Optional[int] = None
     ) -> Dict[str, Any]:
         """Process query with agent-first approach, fallback to vector search."""
@@ -319,7 +319,7 @@ Rewritten question:"""
                 logger.error(f"❌ Vector search also failed: {vector_error}")
                 return self._create_response(
                     query, 
-                    "I encountered an error while searching the knowledge base. Please try again.",
+                    "Currently I don't have the knowledge to answer this question. Please try again with a different question.",
                     [], [], 'error', {
                         'error': str(vector_error),
                         'agent_attempted': True,
