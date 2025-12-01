@@ -112,8 +112,14 @@ class ErrorResponse(BaseModel):
 
 class LoginRequest(BaseModel):
     """Request model for user login."""
-    username: str = Field(..., min_length=1, max_length=100, description="Username")
+    email: str = Field(..., min_length=1, max_length=255, description="Email address")
     password: str = Field(..., min_length=1, description="Password")
+
+class RegisterRequest(BaseModel):
+    """Request model for user registration."""
+    username: str = Field(..., min_length=1, max_length=100, description="Username")
+    email: str = Field(..., min_length=1, max_length=255, description="Email address")
+    password: str = Field(..., min_length=6, description="Password (minimum 6 characters)")
 
 class LoginResponse(BaseModel):
     """Response model for user login."""

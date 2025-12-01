@@ -75,14 +75,19 @@ Rewritten question:"""
             return query
 
     def _apply_personalization_to_response(self, response: str, user_id: Optional[int] = None) -> str:
-        """Apply user personalization to any response."""
-        if not user_id or not hasattr(self.vector_store, 'get_user_personalization'):
+        """Apply admin's personalization to any response (applies to all users)."""
+        if not hasattr(self.vector_store, 'get_user_personalization') or not hasattr(self.vector_store, 'SessionLocal'):
             return response
         
         try:
-            personalization = self.vector_store.get_user_personalization(user_id)
-            if not personalization:
-                return response
+            # Get admin's personalization (applies to all users)
+            with self.vector_store.SessionLocal() as db:
+                admin_user = db.query(self.vector_store.UserORM).filter_by(role='admin').first()
+                if not admin_user:
+                    return response
+                personalization = self.vector_store.get_user_personalization(admin_user.id)
+                if not personalization:
+                    return response
             
             # Check if there's actually any personalization to apply (handle empty strings)
             has_custom_instructions = bool(personalization.get('custom_instructions', '').strip())
@@ -92,7 +97,7 @@ Rewritten question:"""
             
             # If no personalization settings exist, return original response
             if not (has_custom_instructions or has_nickname or has_custom_tone):
-                logger.info(f"No personalization settings found for user {user_id}, returning original response")
+                logger.info(f"No admin personalization settings found, returning original response")
                 return response
             
             # Build a refinement prompt only if we have something to personalize
@@ -115,7 +120,7 @@ Rewritten question:"""
                     refinement_parts.append(tone_map[tone])
             
             if not refinement_parts:
-                logger.info(f"No valid personalization rules for user {user_id}, returning original response")
+                logger.info(f"No valid admin personalization rules, returning original response")
                 return response
             
             # Build the full prompt
@@ -128,7 +133,7 @@ Rewritten question:"""
 
     Rewritten response:"""
             
-            logger.info(f"Applying personalization for user {user_id}")
+            logger.info(f"Applying admin personalization to response")
             personalized = self.llm_connector.generate_response(full_prompt).strip()
             
             # Validate the response isn't the prompt itself
@@ -386,44 +391,47 @@ Rewritten question:"""
         # Build system prompt
         system_parts = ["You are a knowledgeable assistant. Answer questions using the provided information."]
         
-        # Add user personalization if available
-        print(f"🔍 DEBUG: user_id={user_id}, hasattr(get_user_personalization)={hasattr(self.vector_store, 'get_user_personalization')}, condition_result={user_id and hasattr(self.vector_store, 'get_user_personalization')}")
-        if user_id and hasattr(self.vector_store, 'get_user_personalization'):
+        # Add admin's personalization (applies to all users)
+        if hasattr(self.vector_store, 'get_user_personalization') and hasattr(self.vector_store, 'SessionLocal'):
             try:
-                personalization = self.vector_store.get_user_personalization(user_id)
-                if personalization:
-                    print(f"📥 Personalization details FETCHED for user_id={user_id} in RAG pipeline: {personalization}")
-                    # Add custom instructions
-                    if personalization.get('custom_instructions'):
-                        print('added custom instructions')
-                        system_parts.append(f"\n## User's Custom Instructions:\n{personalization['custom_instructions']}")
-                    
-                    # Add user context
-                    user_context_parts = []
-                    if personalization.get('nickname'):
-                        print('added')
-                        user_context_parts.append(f"User's preferred name: {personalization['nickname']}")
-                    if personalization.get('occupation'):
-                        print('added occupation')
-                        user_context_parts.append(f"User's occupation: {personalization['occupation']}")
-                    if personalization.get('more_about_you'):
-                        print('added more about you')
-                        user_context_parts.append(f"About user: {personalization['more_about_you']}")
-                    
-                    if user_context_parts:
-                        system_parts.append(f"\n## User Context:\n" + "\n".join(user_context_parts))
-                    
-                    # Add style/tone preferences
-                    tone = personalization.get('base_style_tone', 'default')
-                    if tone != 'default':
-                        tone_instructions = {
-                            'professional': 'Use a professional and formal tone.',
-                            'casual': 'Use a casual and friendly tone.',
-                            'friendly': 'Use a warm and approachable tone.',
-                            'formal': 'Use a strictly formal and business-like tone.'
-                        }
-                        if tone in tone_instructions:
-                            system_parts.append(f"\n## Response Style:\n{tone_instructions[tone]}")
+                # Get admin user's personalization (applies to all users)
+                with self.vector_store.SessionLocal() as db:
+                    admin_user = db.query(self.vector_store.UserORM).filter_by(role='admin').first()
+                    if admin_user:
+                        personalization = self.vector_store.get_user_personalization(admin_user.id)
+                        if personalization:
+                            print(f"📥 Admin personalization applied for all users: {personalization}")
+                            # Add custom instructions
+                            if personalization.get('custom_instructions'):
+                                print('added custom instructions')
+                                system_parts.append(f"\n## Custom Instructions:\n{personalization['custom_instructions']}")
+                            
+                            # Add user context
+                            user_context_parts = []
+                            if personalization.get('nickname'):
+                                print('added nickname')
+                                user_context_parts.append(f"User's preferred name: {personalization['nickname']}")
+                            if personalization.get('occupation'):
+                                print('added occupation')
+                                user_context_parts.append(f"User's occupation: {personalization['occupation']}")
+                            if personalization.get('more_about_you'):
+                                print('added more about you')
+                                user_context_parts.append(f"About user: {personalization['more_about_you']}")
+                            
+                            if user_context_parts:
+                                system_parts.append(f"\n## User Context:\n" + "\n".join(user_context_parts))
+                            
+                            # Add style/tone preferences
+                            tone = personalization.get('base_style_tone', 'default')
+                            if tone != 'default':
+                                tone_instructions = {
+                                    'professional': 'Use a professional and formal tone.',
+                                    'casual': 'Use a casual and friendly tone.',
+                                    'friendly': 'Use a warm and approachable tone.',
+                                    'formal': 'Use a strictly formal and business-like tone.'
+                                }
+                                if tone in tone_instructions:
+                                    system_parts.append(f"\n## Response Style:\n{tone_instructions[tone]}")
             except Exception as e:
                 logger.warning(f"Could not load personalization: {e}")
         

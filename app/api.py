@@ -24,7 +24,7 @@ from app.models import (
     QueryRequest, QueryResponse, SearchRequest, SearchResponse,
     DocumentListResponse, IngestionResponse, StatsResponse, 
     LLMTestResponse, ErrorResponse, ChatSessionResponse, ChatHistoryResponse, ChatMessage,
-    ChatSessionsListResponse, ChatSessionInfo, LoginRequest, LoginResponse, UserInfo
+    ChatSessionsListResponse, ChatSessionInfo, LoginRequest, LoginResponse, RegisterRequest, UserInfo
 )
 from app.rag_pipeline import RAGPipeline
 from app.document_processor import DocumentProcessor
@@ -199,6 +199,15 @@ app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
 rag_pipeline = RAGPipeline()
 document_processor = DocumentProcessor()
 
+@app.get("/login.html")
+async def serve_login():
+    """Serve the login page."""
+    login_file = static_dir / "login.html"
+    if login_file.exists():
+        return FileResponse(str(login_file))
+    else:
+        raise HTTPException(status_code=404, detail="Login page not found")
+
 @app.get("/")
 async def serve_ui():
     """Serve the main UI."""
@@ -225,17 +234,22 @@ async def serve_ui():
             }
         }
 
+@app.get("/health", tags=["Health"])
+async def health_check():
+    """Health check endpoint that returns true."""
+    return {"status": True}
+
 @app.post("/api/auth/login", response_model=LoginResponse, tags=["Authentication"])
 async def login(request: LoginRequest):
-    """Login endpoint to authenticate user."""
+    """Login endpoint to authenticate user with email and password."""
     try:
-        if not hasattr(rag_pipeline, 'vector_store') or not hasattr(rag_pipeline.vector_store, 'verify_user_credentials'):
+        if not hasattr(rag_pipeline, 'vector_store') or not hasattr(rag_pipeline.vector_store, 'verify_user_by_email'):
             raise HTTPException(status_code=500, detail="Authentication not available")
         
-        user = rag_pipeline.vector_store.verify_user_credentials(request.username, request.password)
+        user = rag_pipeline.vector_store.verify_user_by_email(request.email, request.password)
         
         if not user:
-            raise HTTPException(status_code=401, detail="Invalid username or password")
+            raise HTTPException(status_code=401, detail="Invalid email or password")
         
         # Get personalization
         personalization = rag_pipeline.vector_store.get_user_personalization(user["id"])
@@ -257,6 +271,50 @@ async def login(request: LoginRequest):
         logger.error(f"Error during login: {e}")
         raise HTTPException(status_code=500, detail=f"Error during login: {str(e)}")
 
+# Registration endpoint commented out - registration disabled for now
+# @app.post("/api/auth/register", response_model=LoginResponse, tags=["Authentication"])
+# async def register(request: RegisterRequest):
+#     """Register a new user."""
+#     try:
+#         if not hasattr(rag_pipeline, 'vector_store') or not hasattr(rag_pipeline.vector_store, 'create_user'):
+#             raise HTTPException(status_code=500, detail="Registration not available")
+#         
+#         # Validate email format
+#         import re
+#         email_pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+#         if not re.match(email_pattern, request.email):
+#             raise HTTPException(status_code=400, detail="Invalid email format")
+#         
+#         # Create user
+#         user = rag_pipeline.vector_store.create_user(
+#             username=request.username,
+#             password=request.password,
+#             email=request.email
+#         )
+#         
+#         if not user:
+#             raise HTTPException(status_code=400, detail="Username or email already exists")
+#         
+#         # Get personalization (will be empty for new user)
+#         personalization = rag_pipeline.vector_store.get_user_personalization(user["id"])
+#         if personalization:
+#             user.update(personalization)
+#         
+#         # Create JWT token
+#         token = create_access_token(user["username"], user["id"])
+#         
+#         return LoginResponse(
+#             success=True,
+#             message="Registration successful",
+#             token=token,
+#             user=user
+#         )
+#     except HTTPException:
+#         raise
+#     except Exception as e:
+#         logger.error(f"Error during registration: {e}")
+#         raise HTTPException(status_code=500, detail=f"Error during registration: {str(e)}")
+
 @app.get("/api/auth/me", tags=["Authentication"])
 async def get_current_user_info(current_user: Optional[Dict[str, Any]] = Depends(get_current_user)):
     """Get current authenticated user information."""
@@ -266,24 +324,34 @@ async def get_current_user_info(current_user: Optional[Dict[str, Any]] = Depends
 
 @app.get("/api/auth/personalization", tags=["Authentication"])
 async def get_personalization(current_user: Optional[Dict[str, Any]] = Depends(get_current_user)):
-    """Get current user's personalization settings."""
+    """Get personalization settings. Admin only - applies to all users."""
     if not current_user:
         raise HTTPException(status_code=401, detail="Not authenticated")
     
+    # Check if user is admin
+    if current_user.get('role') != 'admin':
+        raise HTTPException(status_code=403, detail="Only administrators can access personalization")
+    
     try:
-        personalization = rag_pipeline.vector_store.get_user_personalization(current_user["id"])
+        # Get admin's personalization (applies to all users)
+        # Query for admin user directly
+        admin_user = None
+        with rag_pipeline.vector_store.SessionLocal() as db:
+            admin_user = db.query(rag_pipeline.vector_store.UserORM).filter_by(role='admin').first()
         
-        if not personalization:
-            # Return default empty settings
-            return {
-                "custom_instructions": "",
-                "nickname": "",
-                "occupation": "",
-                "more_about_you": "",
-                "base_style_tone": "default"
-            }
+        if admin_user:
+            personalization = rag_pipeline.vector_store.get_user_personalization(admin_user.id)
+            if personalization:
+                return personalization
         
-        return personalization
+        # Return default empty settings
+        return {
+            "custom_instructions": "",
+            "nickname": "",
+            "occupation": "",
+            "more_about_you": "",
+            "base_style_tone": "default"
+        }
     except Exception as e:
         logger.error(f"Error getting personalization: {e}")
         raise HTTPException(status_code=500, detail=f"Error getting personalization: {str(e)}")
@@ -293,18 +361,23 @@ async def save_personalization(
     personalization: Dict[str, Any],
     current_user: Optional[Dict[str, Any]] = Depends(get_current_user)
 ):
-    """Save user's personalization settings."""
+    """Save personalization settings. Admin only - applies to all users."""
     if not current_user:
         raise HTTPException(status_code=401, detail="Not authenticated")
     
+    # Check if user is admin
+    if current_user.get('role') != 'admin':
+        raise HTTPException(status_code=403, detail="Only administrators can save personalization")
+    
     try:
+        # Save to admin's personalization (applies to all users)
         success = rag_pipeline.vector_store.save_user_personalization(
             current_user["id"], 
             personalization
         )
         
         if success:
-            return {"success": True, "message": "Personalization saved successfully"}
+            return {"success": True, "message": "Personalization saved successfully. This applies to all users."}
         else:
             raise HTTPException(status_code=500, detail="Failed to save personalization")
     except HTTPException:
@@ -318,13 +391,126 @@ async def logout():
     """Logout endpoint (client should remove token)."""
     return {"message": "Logged out successfully"}
 
+# User Management Endpoints (Admin Only)
+# Test endpoint to verify route registration
+@app.get("/api/admin/test", tags=["Admin"])
+async def test_admin_endpoint():
+    """Test endpoint to verify admin routes are registered."""
+    return {"message": "Admin routes are working", "status": "ok"}
+
+@app.get("/api/admin/users", tags=["Admin"])
+async def get_all_users(current_user: Optional[Dict[str, Any]] = Depends(get_current_user)):
+    """Get all users. Admin only."""
+    logger.info("GET /api/admin/users endpoint called")
+    
+    if not current_user:
+        logger.warning("GET /api/admin/users: Not authenticated")
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    
+    # Check if user is admin
+    if current_user.get('role') != 'admin':
+        logger.warning(f"GET /api/admin/users: User {current_user.get('username')} is not admin")
+        raise HTTPException(status_code=403, detail="Only administrators can access user management")
+    
+    try:
+        if not hasattr(rag_pipeline, 'vector_store') or not hasattr(rag_pipeline.vector_store, 'get_all_users'):
+            logger.error("GET /api/admin/users: vector_store or get_all_users method not available")
+            raise HTTPException(status_code=500, detail="User management not available")
+        
+        logger.info("GET /api/admin/users: Calling get_all_users()")
+        users = rag_pipeline.vector_store.get_all_users()
+        logger.info(f"GET /api/admin/users: Found {len(users)} users")
+        return {"users": users, "total": len(users)}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting all users: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Error getting users: {str(e)}")
+
+@app.post("/api/admin/users", tags=["Admin"])
+async def create_user_admin(
+    request: RegisterRequest,
+    current_user: Optional[Dict[str, Any]] = Depends(get_current_user)
+):
+    """Create a new user. Admin only."""
+    if not current_user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    
+    # Check if user is admin
+    if current_user.get('role') != 'admin':
+        raise HTTPException(status_code=403, detail="Only administrators can create users")
+    
+    try:
+        if not hasattr(rag_pipeline, 'vector_store') or not hasattr(rag_pipeline.vector_store, 'create_user'):
+            raise HTTPException(status_code=500, detail="User management not available")
+        
+        user = rag_pipeline.vector_store.create_user(
+            username=request.username,
+            password=request.password,
+            email=request.email
+        )
+        
+        if not user:
+            raise HTTPException(status_code=400, detail="Email already exists or invalid data")
+        
+        return {
+            "success": True,
+            "message": "User created successfully",
+            "user": user
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error creating user: {e}")
+        raise HTTPException(status_code=500, detail=f"Error creating user: {str(e)}")
+
+@app.delete("/api/admin/users/{user_id}", tags=["Admin"])
+async def delete_user_admin(
+    user_id: int,
+    current_user: Optional[Dict[str, Any]] = Depends(get_current_user)
+):
+    """Delete a user. Admin only."""
+    if not current_user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    
+    # Check if user is admin
+    if current_user.get('role') != 'admin':
+        raise HTTPException(status_code=403, detail="Only administrators can delete users")
+    
+    # Prevent admin from deleting themselves
+    if current_user.get('id') == user_id:
+        raise HTTPException(status_code=400, detail="Cannot delete your own account")
+    
+    try:
+        if not hasattr(rag_pipeline, 'vector_store') or not hasattr(rag_pipeline.vector_store, 'delete_user'):
+            raise HTTPException(status_code=500, detail="User management not available")
+        
+        success = rag_pipeline.vector_store.delete_user(user_id)
+        
+        if not success:
+            raise HTTPException(status_code=404, detail="User not found")
+        
+        return {
+            "success": True,
+            "message": "User deleted successfully"
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error deleting user: {e}")
+        raise HTTPException(status_code=500, detail=f"Error deleting user: {str(e)}")
+
 @app.post("/api/ingest", response_model=EnhancedIngestionResponse, tags=["Documents"])
 async def ingest_documents_parallel(
     files: List[UploadFile] = File(..., description="PDF, CSV, or XLSX files to ingest"),
     max_workers: int = Form(default=4, description="Number of parallel workers"),
-    batch_size: int = Form(default=100, description="Chunks per batch")
+    batch_size: int = Form(default=100, description="Chunks per batch"),
+    current_user: Optional[Dict[str, Any]] = Depends(get_current_user)
 ):
-    """Ingest documents (PDF, CSV, XLSX) using parallel processing."""
+    """Ingest documents (PDF, CSV, XLSX) using parallel processing. Admin only."""
+    # Check if user is admin
+    if not current_user or current_user.get('role') != 'admin':
+        raise HTTPException(status_code=403, detail="Only administrators can upload documents")
     try:
         if not files:
             raise HTTPException(status_code=400, detail="No files provided")
@@ -419,10 +605,10 @@ async def ingest_documents_async(
     batch_size: int = Form(default=100),
     current_user: Optional[Dict[str, Any]] = Depends(get_current_user)
 ):
-    """Ingest documents asynchronously. Requires authentication."""
-    # Check authentication
-    if not current_user:
-        raise HTTPException(status_code=401, detail="Authentication required. Please login to upload documents.")
+    """Ingest documents asynchronously. Admin only."""
+    # Check if user is admin
+    if not current_user or current_user.get('role') != 'admin':
+        raise HTTPException(status_code=403, detail="Only administrators can upload documents")
     logger.debug(f"Received ingestion request: {len(files)} file(s), max_workers={max_workers}, batch_size={batch_size}")
     try:
         if not files:
@@ -601,9 +787,9 @@ async def process_query(request: QueryRequest,current_user: Optional[Dict[str, A
         try:
             if hasattr(rag_pipeline, 'vector_store') and hasattr(rag_pipeline.vector_store, 'save_chat_message'):
                 if request.session_id:
-                    rag_pipeline.vector_store.save_chat_message(request.session_id, 'user', request.query)
+                    rag_pipeline.vector_store.save_chat_message(request.session_id, 'user', request.query, user_id=user_id)
                     answer_text = str(result.get('answer', ''))
-                    rag_pipeline.vector_store.save_chat_message(request.session_id, 'ai', answer_text)
+                    rag_pipeline.vector_store.save_chat_message(request.session_id, 'ai', answer_text, user_id=user_id)
         except Exception as persist_err:
             logger.warning(f"Failed to save chat history: {persist_err}")
         
@@ -626,25 +812,48 @@ async def create_chat_session():
         raise HTTPException(status_code=500, detail=f"Error creating chat session: {str(e)}")
 
 @app.get("/api/chat/{session_id}", response_model=ChatHistoryResponse, tags=["RAG"])
-async def get_chat_history(session_id: str):
-    """Return stored chat history for a given session."""
+async def get_chat_history(
+    session_id: str,
+    current_user: Optional[Dict[str, Any]] = Depends(get_current_user)
+):
+    """Return stored chat history for a given session. Users can only see their own chats."""
     try:
+        # For non-admin users, verify the session belongs to them
+        if current_user and current_user.get('role') != 'admin':
+            user_id = current_user.get("id")
+            # Verify session belongs to this user by checking if any messages exist for this session and user
+            if hasattr(rag_pipeline, 'vector_store'):
+                with rag_pipeline.vector_store.SessionLocal() as db:
+                    session_check = db.query(rag_pipeline.vector_store.ChatMessageORM).filter_by(
+                        session_id=session_id,
+                        user_id=user_id
+                    ).first()
+                    if not session_check:
+                        raise HTTPException(status_code=403, detail="You can only access your own chat sessions")
+        else:
+            user_id = None  # Admin can see all
+        
         if hasattr(rag_pipeline, 'vector_store') and hasattr(rag_pipeline.vector_store, 'get_chat_history'):
-            rows = rag_pipeline.vector_store.get_chat_history(session_id)
+            rows = rag_pipeline.vector_store.get_chat_history(session_id, user_id=user_id)
             messages = [ChatMessage(id=r.get('id'), session_id=session_id, role=r.get('role'), message=r.get('message')) for r in rows]
             return ChatHistoryResponse(session_id=session_id, messages=messages)
         else:
             return ChatHistoryResponse(session_id=session_id, messages=[])
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error fetching chat history: {e}")
         raise HTTPException(status_code=500, detail=f"Error fetching chat history: {str(e)}")
 
 @app.get("/api/chat/sessions/list", response_model=ChatSessionsListResponse, tags=["RAG"])
-async def list_chat_sessions():
-    """Return list of all chat sessions with their first message as title."""
+async def list_chat_sessions(
+    current_user: Optional[Dict[str, Any]] = Depends(get_current_user)
+):
+    """Return list of all chat sessions with their first message as title. Users can only see their own chats."""
     try:
+        user_id = current_user.get("id") if current_user and current_user.get('role') != 'admin' else None
         if hasattr(rag_pipeline, 'vector_store') and hasattr(rag_pipeline.vector_store, 'get_all_chat_sessions'):
-            sessions_data = rag_pipeline.vector_store.get_all_chat_sessions()
+            sessions_data = rag_pipeline.vector_store.get_all_chat_sessions(user_id=user_id)
             sessions = [
                 ChatSessionInfo(
                     session_id=s.get('session_id'),
@@ -692,8 +901,14 @@ async def list_documents():
         raise HTTPException(status_code=500, detail=f"Error listing documents: {str(e)}")
 
 @app.delete("/api/documents/{filename:path}", tags=["Documents"])
-async def delete_document(filename: str):
-    """Delete a single document and all its chunks from the knowledge base."""
+async def delete_document(
+    filename: str,
+    current_user: Optional[Dict[str, Any]] = Depends(get_current_user)
+):
+    """Delete a single document and all its chunks from the knowledge base. Admin only."""
+    # Check if user is admin
+    if not current_user or current_user.get('role') != 'admin':
+        raise HTTPException(status_code=403, detail="Only administrators can delete documents")
     try:
         # URL decode the filename in case it has special characters
         import urllib.parse
@@ -1050,15 +1265,23 @@ def scrape_url(url: str, depth: int = 1, visited=None, use_proxy: bool = False, 
 
 
 @app.post("/api/weblink", tags=["Weblink"])
-async def weblink_endpoint(request: Dict[str, Any]):
+async def weblink_endpoint(
+    request: Dict[str, Any],
+    current_user: Optional[Dict[str, Any]] = Depends(get_current_user)
+):
     """
     Schedule weblink scraping and ingestion as a background Celery task.
     Returns a job_id to poll with any Celery-aware progress endpoint.
+    Admin only.
     
     Optional parameters:
     - use_proxy: bool - Enable proxy usage for scraping
     - proxy_list: List[str] - List of proxy URLs to use
     """
+    # Check if user is admin
+    if not current_user or current_user.get('role') != 'admin':
+        raise HTTPException(status_code=403, detail="Only administrators can upload web links")
+    
     try:
         url = request.get("query")
         depth = int(request.get("depth", 1))

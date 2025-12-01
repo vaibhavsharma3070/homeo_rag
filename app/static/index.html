@@ -221,6 +221,43 @@
             color: #e5e7eb;
             border-bottom-left-radius: 6px;
             word-wrap: break-word;
+            position: relative;
+        }
+        .copy-btn {
+            position: absolute;
+            top: 8px;
+            right: 8px;
+            background: none;
+            border: none;
+            color: #9ca3af;
+            padding: 4px;
+            cursor: pointer;
+            font-size: 1.1rem;
+            transition: all 0.2s ease;
+            opacity: 0;
+            pointer-events: none;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 24px;
+            height: 24px;
+        }
+        .bubble.ai:hover .copy-btn {
+            opacity: 1;
+            pointer-events: auto;
+            color: #e5e7eb;
+        }
+        .copy-btn:hover {
+            color: #ffffff;
+            transform: scale(1.1);
+        }
+        .copy-btn:active {
+            transform: scale(0.95);
+        }
+        .copy-btn.copied {
+            color: #10a37f;
+            opacity: 1;
+            pointer-events: auto;
         }
         .message-meta {
             font-size: 0.75rem;
@@ -508,6 +545,16 @@
             background: rgba(0, 0, 0, 0.6);
             z-index: 9999;
             animation: modalFadeIn 0.3s ease;
+        }
+
+        /* Confirmation modal should appear above other modals */
+        #confirmModal {
+            z-index: 10000;
+        }
+
+        /* Custom modal (success/error messages) should appear above all other modals */
+        #customModal {
+            z-index: 10001;
         }
 
         .modal-overlay.show {
@@ -855,16 +902,16 @@
             <button class="modal-close" onclick="hideLoginModal()">&times;</button>
             <div class="modal-header">
                 <div class="modal-icon" style="color: #10a37f;">🔐</div>
-                <h3 class="modal-title">Login Required</h3>
+                <h3 class="modal-title">Login</h3>
             </div>
             <div class="modal-body">
-                <p style="margin-bottom: 20px; color: #9ca3af;">Please login to upload documents.</p>
+                <p style="margin-bottom: 20px; color: #9ca3af;">Please login to continue.</p>
                 <form id="loginForm" onsubmit="handleLogin(event)" style="display: flex; flex-direction: column; gap: 15px;">
                     <div>
-                        <label for="loginUsername" style="display: block; margin-bottom: 5px; color: #d1d5db; font-size: 0.9rem;">Username</label>
-                        <input type="text" id="loginUsername" required 
+                        <label for="loginEmail" style="display: block; margin-bottom: 5px; color: #d1d5db; font-size: 0.9rem;">Email</label>
+                        <input type="email" id="loginEmail" required 
                                style="width: 100%; padding: 10px; background: #2a2a2a; border: 1px solid #3a3a3a; border-radius: 6px; color: #e5e7eb; font-size: 1rem;"
-                               placeholder="Enter username">
+                               placeholder="Enter email address">
                     </div>
                     <div>
                         <label for="loginPassword" style="display: block; margin-bottom: 5px; color: #d1d5db; font-size: 0.9rem;">Password</label>
@@ -874,8 +921,55 @@
                     </div>
                     <div id="loginError" style="color: #e53e3e; font-size: 0.9rem; display: none;"></div>
                     <div style="display: flex; gap: 10px; justify-content: flex-end;">
-                        <button type="button" class="modal-btn" onclick="hideLoginModal()" style="background: #3a3a3a;">Cancel</button>
+                        <button type="button" class="modal-btn" onclick="hideLoginModal(); showRegisterModal();" style="background: #3a3a3a;">Register</button>
                         <button type="submit" class="modal-btn modal-btn-primary" id="loginSubmitBtn">Login</button>
+                    </div>
+                    <div style="text-align: center; margin-top: 10px;">
+                        <span style="color: #9ca3af; font-size: 0.9rem;">Don't have an account? </span>
+                        <a href="#" onclick="event.preventDefault(); hideLoginModal(); showRegisterModal();" style="color: #10a37f; text-decoration: none; font-size: 0.9rem;">Sign up</a>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Register Modal -->
+    <div class="modal-overlay" id="registerModal">
+        <div class="modal-content" style="max-width: 400px;">
+            <button class="modal-close" onclick="hideRegisterModal()">&times;</button>
+            <div class="modal-header">
+                <div class="modal-icon" style="color: #667eea;">📝</div>
+                <h3 class="modal-title">Create Account</h3>
+            </div>
+            <div class="modal-body">
+                <p style="margin-bottom: 20px; color: #9ca3af;">Create a new account to get started.</p>
+                <form id="registerForm" onsubmit="handleRegister(event)" style="display: flex; flex-direction: column; gap: 15px;">
+                    <div>
+                        <label for="registerUsername" style="display: block; margin-bottom: 5px; color: #d1d5db; font-size: 0.9rem;">Username</label>
+                        <input type="text" id="registerUsername" required 
+                               style="width: 100%; padding: 10px; background: #2a2a2a; border: 1px solid #3a3a3a; border-radius: 6px; color: #e5e7eb; font-size: 1rem;"
+                               placeholder="Enter username">
+                    </div>
+                    <div>
+                        <label for="registerEmail" style="display: block; margin-bottom: 5px; color: #d1d5db; font-size: 0.9rem;">Email</label>
+                        <input type="email" id="registerEmail" required
+                               style="width: 100%; padding: 10px; background: #2a2a2a; border: 1px solid #3a3a3a; border-radius: 6px; color: #e5e7eb; font-size: 1rem;"
+                               placeholder="Enter email address">
+                    </div>
+                    <div>
+                        <label for="registerPassword" style="display: block; margin-bottom: 5px; color: #d1d5db; font-size: 0.9rem;">Password</label>
+                        <input type="password" id="registerPassword" required minlength="6"
+                               style="width: 100%; padding: 10px; background: #2a2a2a; border: 1px solid #3a3a3a; border-radius: 6px; color: #e5e7eb; font-size: 1rem;"
+                               placeholder="Enter password (min 6 characters)">
+                    </div>
+                    <div id="registerError" style="color: #e53e3e; font-size: 0.9rem; display: none;"></div>
+                    <div style="display: flex; gap: 10px; justify-content: flex-end;">
+                        <button type="button" class="modal-btn" onclick="hideRegisterModal(); showLoginModal();" style="background: #3a3a3a;">Login</button>
+                        <button type="submit" class="modal-btn modal-btn-primary" id="registerSubmitBtn">Register</button>
+                    </div>
+                    <div style="text-align: center; margin-top: 10px;">
+                        <span style="color: #9ca3af; font-size: 0.9rem;">Already have an account? </span>
+                        <a href="#" onclick="event.preventDefault(); hideRegisterModal(); showLoginModal();" style="color: #10a37f; text-decoration: none; font-size: 0.9rem;">Sign in</a>
                     </div>
                 </form>
             </div>
@@ -962,6 +1056,53 @@
         </div>
     </div>
 
+    <!-- User Management Modal -->
+    <div class="modal-overlay" id="userManagementModal">
+        <div class="modal-content" style="max-width: 900px; max-height: 90vh; overflow-y: auto;">
+            <button class="modal-close" onclick="hideUserManagementModal()">&times;</button>
+            <div class="modal-header">
+                <h3 class="modal-title" style="font-size: 1.5rem; font-weight: 600; color: #e5e7eb;">User Management</h3>
+            </div>
+            <div class="modal-body" style="padding: 24px;">
+                <!-- Create User Form -->
+                <div style="margin-bottom: 32px; padding: 20px; background: #1f1f1f; border-radius: 8px; border: 1px solid #3a3a3a;">
+                    <h4 style="color: #e5e7eb; font-size: 1.1rem; font-weight: 600; margin-bottom: 16px;">Create New User</h4>
+                    <form id="createUserForm" onsubmit="createUser(event)">
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px;">
+                            <div>
+                                <label for="newUsername" style="display: block; margin-bottom: 6px; color: #d1d5db; font-size: 0.9rem;">Username *</label>
+                                <input type="text" id="newUsername" required style="width: 100%; padding: 10px; background: #2a2a2a; border: 1px solid #3a3a3a; border-radius: 6px; color: #e5e7eb; font-size: 0.9rem;" placeholder="Enter username">
+                            </div>
+                            <div>
+                                <label for="newEmail" style="display: block; margin-bottom: 6px; color: #d1d5db; font-size: 0.9rem;">Email *</label>
+                                <input type="email" id="newEmail" required style="width: 100%; padding: 10px; background: #2a2a2a; border: 1px solid #3a3a3a; border-radius: 6px; color: #e5e7eb; font-size: 0.9rem;" placeholder="Enter email">
+                            </div>
+                        </div>
+                        <div style="margin-bottom: 16px;">
+                            <label for="newPassword" style="display: block; margin-bottom: 6px; color: #d1d5db; font-size: 0.9rem;">Password *</label>
+                            <input type="password" id="newPassword" required minlength="6" style="width: 100%; padding: 10px; background: #2a2a2a; border: 1px solid #3a3a3a; border-radius: 6px; color: #e5e7eb; font-size: 0.9rem;" placeholder="Enter password (min 6 characters)">
+                        </div>
+                        <div id="createUserError" style="color: #e53e3e; font-size: 0.9rem; margin-bottom: 16px; display: none;"></div>
+                        <div style="display: flex; gap: 10px; justify-content: flex-end;">
+                            <button type="submit" class="modal-btn modal-btn-primary" id="createUserBtn">Create User</button>
+                        </div>
+                    </form>
+                </div>
+
+                <!-- Users List -->
+                <div>
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+                        <h4 style="color: #e5e7eb; font-size: 1.1rem; font-weight: 600;">All Users</h4>
+                        <button type="button" class="modal-btn" onclick="loadUsers()" style="background: #3a3a3a; padding: 8px 16px; font-size: 0.9rem;">Refresh</button>
+                    </div>
+                    <div id="usersList" style="min-height: 200px;">
+                        <div style="text-align: center; padding: 40px; color: #9ca3af;">Loading users...</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <div class="sidebar">
         <div class="sidebar-header">
             <div class="brand">🌿 Homeopathy RAG</div>
@@ -1016,6 +1157,15 @@
                                 <path d="M12 1v6m0 6v6M5.64 5.64l4.24 4.24m4.24 4.24l4.24 4.24M1 12h6m6 0h6M5.64 18.36l4.24-4.24m4.24-4.24l4.24-4.24"></path>
                             </svg>
                             <span>Personalization</span>
+                        </div>
+                        <div class="user-dropdown-item" onclick="openUserManagement()">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
+                                <circle cx="9" cy="7" r="4"></circle>
+                                <path d="M23 21v-2a4 4 0 0 0-3-3.87"></path>
+                                <path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
+                            </svg>
+                            <span>User Management</span>
                         </div>
                         <div class="user-dropdown-item" onclick="handleLogout()">
                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -1238,6 +1388,16 @@
             try {
                 localStorage.removeItem(AUTH_TOKEN_KEY);
                 localStorage.removeItem(USER_INFO_KEY);
+                // Clear chat history on logout
+                localStorage.removeItem('homeo_rag_chat_history');
+                localStorage.removeItem('homeo_rag_chat_session_id');
+                // Clear chat state
+                if (typeof chatMessages !== 'undefined') {
+                    chatMessages = [];
+                }
+                if (typeof chatSessionId !== 'undefined') {
+                    chatSessionId = null;
+                }
                 currentUser = null;
                 updateUserDisplay();
             } catch (e) {
@@ -1282,6 +1442,39 @@
                     userNameSpan.textContent = user.username || 'User';
                     console.log('User display updated:', user.username);
                 }
+                
+                // Show/hide features based on role
+                const isAdmin = user.role === 'admin';
+                
+                // Show/hide personalization menu item
+                const personalizationItem = document.querySelector('.user-dropdown-item[onclick="openPersonalization()"]');
+                if (personalizationItem) {
+                    personalizationItem.style.display = isAdmin ? 'flex' : 'none';
+                }
+                
+                // Show/hide user management menu item
+                const userManagementItem = document.querySelector('.user-dropdown-item[onclick="openUserManagement()"]');
+                if (userManagementItem) {
+                    userManagementItem.style.display = isAdmin ? 'flex' : 'none';
+                }
+                
+                // Show/hide upload section
+                const uploadNavItem = document.querySelector('.nav-item[data-section="upload"]');
+                if (uploadNavItem) {
+                    uploadNavItem.style.display = isAdmin ? 'flex' : 'none';
+                }
+                
+                // Show/hide weblinks section
+                const weblinksNavItem = document.querySelector('.nav-item[data-section="weblinks"]');
+                if (weblinksNavItem) {
+                    weblinksNavItem.style.display = isAdmin ? 'flex' : 'none';
+                }
+                
+                // Show/hide delete buttons in documents list
+                const deleteButtons = document.querySelectorAll('.document-delete-btn');
+                deleteButtons.forEach(btn => {
+                    btn.style.display = isAdmin ? 'block' : 'none';
+                });
             } else {
                 if (userInfoDiv) {
                     userInfoDiv.style.display = 'none';
@@ -1321,6 +1514,37 @@
             }
         }
 
+        // Show register modal
+        function showRegisterModal() {
+            console.log('showRegisterModal called');
+            const modal = document.getElementById('registerModal');
+            console.log('Register modal element:', modal);
+            if (modal) {
+                modal.classList.add('show');
+                document.body.style.overflow = 'hidden';
+                // Clear form
+                const form = document.getElementById('registerForm');
+                const errorDiv = document.getElementById('registerError');
+                if (form) form.reset();
+                if (errorDiv) {
+                    errorDiv.style.display = 'none';
+                    errorDiv.textContent = '';
+                }
+                console.log('Register modal shown');
+            } else {
+                console.error('Register modal element not found!');
+            }
+        }
+
+        // Hide register modal
+        function hideRegisterModal() {
+            const modal = document.getElementById('registerModal');
+            if (modal) {
+                modal.classList.remove('show');
+                document.body.style.overflow = 'auto';
+            }
+        }
+
         // Close login modal when clicking outside (wait for DOM)
         function setupLoginModal() {
             const loginModal = document.getElementById('loginModal');
@@ -1333,10 +1557,66 @@
             }
         }
 
+        // Setup register modal click outside
+        function setupRegisterModal() {
+            const registerModal = document.getElementById('registerModal');
+            if (registerModal) {
+                registerModal.addEventListener('click', function(e) {
+                    if (e.target === this) {
+                        hideRegisterModal();
+                    }
+                });
+            }
+        }
+
+        // Handle registration form submission
+        async function handleRegister(event) {
+            event.preventDefault();
+            const username = document.getElementById('registerUsername').value;
+            const email = document.getElementById('registerEmail').value;
+            const password = document.getElementById('registerPassword').value;
+            const errorDiv = document.getElementById('registerError');
+            const submitBtn = document.getElementById('registerSubmitBtn');
+            
+            errorDiv.style.display = 'none';
+            errorDiv.textContent = '';
+            submitBtn.disabled = true;
+            submitBtn.textContent = 'Registering...';
+
+            try {
+                const response = await fetch(`${API_BASE}/api/auth/register`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ username, email, password })
+                });
+
+                const result = await response.json();
+
+                if (response.ok && result.success) {
+                    console.log('Registration successful, token:', result.token, 'user:', result.user);
+                    setAuthToken(result.token, result.user);
+                    hideRegisterModal();
+                    showModal('Registration Successful', 'Your account has been created successfully. You are now logged in.', 'success');
+                } else {
+                    errorDiv.textContent = result.detail || 'Registration failed. Please try again.';
+                    errorDiv.style.display = 'block';
+                }
+            } catch (error) {
+                errorDiv.textContent = 'Registration failed. Please try again.';
+                errorDiv.style.display = 'block';
+                console.error('Registration error:', error);
+            } finally {
+                submitBtn.disabled = false;
+                submitBtn.textContent = 'Register';
+            }
+        }
+
         // Handle login form submission
         async function handleLogin(event) {
             event.preventDefault();
-            const username = document.getElementById('loginUsername').value;
+            const email = document.getElementById('loginEmail').value;
             const password = document.getElementById('loginPassword').value;
             const errorDiv = document.getElementById('loginError');
             const submitBtn = document.getElementById('loginSubmitBtn');
@@ -1352,7 +1632,7 @@
                     headers: {
                         'Content-Type': 'application/json'
                     },
-                    body: JSON.stringify({ username, password })
+                    body: JSON.stringify({ email, password })
                 });
 
                 const result = await response.json();
@@ -1368,7 +1648,7 @@
                         setTimeout(() => uploadFilesAsync(), 500);
                     }
                 } else {
-                    errorDiv.textContent = result.detail || 'Invalid username or password';
+                    errorDiv.textContent = result.detail || 'Invalid email or password';
                     errorDiv.style.display = 'block';
                 }
             } catch (error) {
@@ -1450,7 +1730,12 @@
 
         function openPersonalization() {
             closeAllDropdowns();
-            showPersonalizationModal();
+            const user = currentUser || getUserInfo();
+            if (user && user.role === 'admin') {
+                showPersonalizationModal();
+            } else {
+                showModal('Access Denied', 'Only administrators can access personalization settings.', 'error');
+            }
         }
 
         // Close dropdown when clicking outside
@@ -1588,6 +1873,252 @@
             }
         }
 
+        // User Management functions
+        function openUserManagement() {
+            closeAllDropdowns();
+            const user = currentUser || getUserInfo();
+            if (user && user.role === 'admin') {
+                showUserManagementModal();
+            } else {
+                showModal('Access Denied', 'Only administrators can access user management.', 'error');
+            }
+        }
+
+        async function showUserManagementModal() {
+            if (!isAuthenticated()) {
+                showLoginModal();
+                return;
+            }
+
+            const modal = document.getElementById('userManagementModal');
+            if (!modal) return;
+
+            modal.classList.add('show');
+            document.body.style.overflow = 'hidden';
+
+            // Load users list
+            await loadUsers();
+
+            // Setup click outside to close (one-time handler)
+            const clickHandler = function(e) {
+                if (e.target === modal) {
+                    hideUserManagementModal();
+                    modal.removeEventListener('click', clickHandler);
+                }
+            };
+            modal.addEventListener('click', clickHandler);
+        }
+
+        function hideUserManagementModal() {
+            const modal = document.getElementById('userManagementModal');
+            if (modal) {
+                modal.classList.remove('show');
+                document.body.style.overflow = 'auto';
+            }
+        }
+
+        async function loadUsers() {
+            const usersListDiv = document.getElementById('usersList');
+            if (!usersListDiv) return;
+
+            try {
+                const token = getAuthToken();
+                if (!token) {
+                    usersListDiv.innerHTML = '<div style="text-align: center; padding: 40px; color: #e53e3e;">Not authenticated. Please login.</div>';
+                    return;
+                }
+
+                usersListDiv.innerHTML = '<div style="text-align: center; padding: 40px; color: #9ca3af;">Loading users...</div>';
+
+                const url = `${API_BASE}/api/admin/users`;
+                console.log('Fetching users from:', url);
+                
+                const response = await fetch(url, {
+                    method: 'GET',
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'Content-Type': 'application/json'
+                    }
+                });
+                
+                console.log('Response status:', response.status, response.statusText);
+
+                if (response.ok) {
+                    const result = await response.json();
+                    const users = result.users || [];
+                    const currentUserId = (currentUser || getUserInfo())?.id;
+
+                    if (users.length === 0) {
+                        usersListDiv.innerHTML = '<div style="text-align: center; padding: 40px; color: #9ca3af;">No users found.</div>';
+                        return;
+                    }
+
+                    let html = '<div style="display: flex; flex-direction: column; gap: 12px;">';
+                    users.forEach(user => {
+                        const isCurrentUser = user.id === currentUserId;
+                        const roleBadge = user.role === 'admin' 
+                            ? '<span style="background: #dc2626; color: white; padding: 4px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: 600;">ADMIN</span>'
+                            : '<span style="background: #3a3a3a; color: #d1d5db; padding: 4px 8px; border-radius: 4px; font-size: 0.75rem;">USER</span>';
+                        
+                        const createdDate = new Date(user.created_at * 1000).toLocaleDateString();
+                        
+                        html += `
+                            <div style="display: flex; justify-content: space-between; align-items: center; padding: 16px; background: #1f1f1f; border: 1px solid #3a3a3a; border-radius: 8px;">
+                                <div style="flex: 1;">
+                                    <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 8px;">
+                                        <span style="color: #e5e7eb; font-weight: 600; font-size: 1rem;">${escapeHtml(user.username)}</span>
+                                        ${roleBadge}
+                                    </div>
+                                    <div style="color: #9ca3af; font-size: 0.875rem;">
+                                        ${user.email ? escapeHtml(user.email) : 'No email'} • Created: ${createdDate}
+                                    </div>
+                                </div>
+                                <div>
+                                    ${isCurrentUser 
+                                        ? '<span style="color: #9ca3af; font-size: 0.875rem; padding: 8px 16px;">Current User</span>'
+                                        : `<button onclick="deleteUser(${user.id}, '${escapeHtml(user.username)}')" class="modal-btn" style="background: #dc2626; color: white; padding: 8px 16px; font-size: 0.875rem;">Delete</button>`
+                                    }
+                                </div>
+                            </div>
+                        `;
+                    });
+                    html += '</div>';
+                    usersListDiv.innerHTML = html;
+                } else {
+                    let errorMessage = 'Failed to load users';
+                    try {
+                        const error = await response.json();
+                        errorMessage = error.detail || errorMessage;
+                        console.error('Error response:', error);
+                    } catch (e) {
+                        // If response is not JSON, use status text
+                        errorMessage = response.statusText || `Error ${response.status}`;
+                        console.error('Error parsing response:', e);
+                    }
+                    
+                    // Provide helpful message for 404
+                    if (response.status === 404) {
+                        errorMessage = 'Endpoint not found. Please restart the server to register new routes.';
+                    }
+                    
+                    usersListDiv.innerHTML = `<div style="text-align: center; padding: 40px; color: #e53e3e;">Error: ${errorMessage} (Status: ${response.status})</div>`;
+                }
+            } catch (error) {
+                console.error('Error loading users:', error);
+                usersListDiv.innerHTML = '<div style="text-align: center; padding: 40px; color: #e53e3e;">Failed to load users. Please try again.</div>';
+            }
+        }
+
+        async function createUser(event) {
+            event.preventDefault();
+            
+            const errorDiv = document.getElementById('createUserError');
+            const submitBtn = document.getElementById('createUserBtn');
+            const form = document.getElementById('createUserForm');
+            
+            errorDiv.style.display = 'none';
+            errorDiv.textContent = '';
+            submitBtn.disabled = true;
+            submitBtn.textContent = 'Creating...';
+
+            try {
+                const token = getAuthToken();
+                if (!token) {
+                    throw new Error('Not authenticated');
+                }
+
+                const username = document.getElementById('newUsername').value.trim();
+                const email = document.getElementById('newEmail').value.trim();
+                const password = document.getElementById('newPassword').value;
+
+                if (!username || !email || !password) {
+                    throw new Error('All fields are required');
+                }
+
+                if (password.length < 6) {
+                    throw new Error('Password must be at least 6 characters');
+                }
+
+                const response = await fetch(`${API_BASE}/api/admin/users`, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        username: username,
+                        email: email,
+                        password: password
+                    })
+                });
+
+                const result = await response.json();
+
+                if (response.ok) {
+                    showModal('User Created', 'User has been created successfully.', 'success');
+                    form.reset();
+                    await loadUsers();
+                } else {
+                    errorDiv.textContent = result.detail || 'Failed to create user';
+                    errorDiv.style.display = 'block';
+                }
+            } catch (error) {
+                errorDiv.textContent = error.message || 'Failed to create user. Please try again.';
+                errorDiv.style.display = 'block';
+                console.error('Create user error:', error);
+            } finally {
+                submitBtn.disabled = false;
+                submitBtn.textContent = 'Create User';
+            }
+        }
+
+        async function deleteUser(userId, username) {
+            const user = currentUser || getUserInfo();
+            if (user && user.id === userId) {
+                showModal('Error', 'You cannot delete your own account.', 'error');
+                return;
+            }
+
+            showConfirmModal(
+                'Delete User',
+                `Are you sure you want to delete user "${username}"? This action cannot be undone.`,
+                async () => {
+                    try {
+                        const token = getAuthToken();
+                        if (!token) {
+                            throw new Error('Not authenticated');
+                        }
+
+                        const response = await fetch(`${API_BASE}/api/admin/users/${userId}`, {
+                            method: 'DELETE',
+                            headers: {
+                                'Authorization': `Bearer ${token}`,
+                                'Content-Type': 'application/json'
+                            }
+                        });
+
+                        const result = await response.json();
+
+                        if (response.ok) {
+                            showModal('User Deleted', 'User has been deleted successfully.', 'success');
+                            await loadUsers();
+                        } else {
+                            showModal('Error', result.detail || 'Failed to delete user', 'error');
+                        }
+                    } catch (error) {
+                        console.error('Delete user error:', error);
+                        showModal('Error', 'Failed to delete user. Please try again.', 'error');
+                    }
+                }
+            );
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
         // Handle logout
         function handleLogout() {
             closeAllDropdowns();
@@ -1606,7 +2137,8 @@
                         console.error('Logout error:', e);
                     } finally {
                         removeAuthToken();
-                        showModal('Logged Out', 'You have been logged out successfully.', 'success');
+                        // Redirect to login page
+                        window.location.href = '/login.html';
                     }
                 }
             );
@@ -1634,18 +2166,21 @@
                         currentUser = userData;
                         setAuthToken(token, userData); // Update stored user info
                         updateUserDisplay();
-                        console.log('Token verified, user:', userData);
                     } else {
-                        console.log('Token invalid, removing');
+                        // Token invalid, clear auth and redirect to login
                         removeAuthToken();
+                        window.location.href = '/login.html';
                     }
                 } catch (error) {
-                    console.error('Error verifying token:', error);
+                    console.error('Error verifying auth:', error);
+                    // On error, redirect to login
                     removeAuthToken();
+                    window.location.href = '/login.html';
                 }
             } else {
-                console.log('No stored auth info');
-                updateUserDisplay();
+                // No token or user info, redirect to login
+                console.log('No authentication found, redirecting to login');
+                window.location.href = '/login.html';
             }
         }
 
@@ -1864,6 +2399,13 @@
             if (!isAuthenticated()) {
                 window.pendingUpload = true;
                 showLoginModal();
+                return;
+            }
+
+            // Check if user is admin
+            const user = currentUser || getUserInfo();
+            if (!user || user.role !== 'admin') {
+                showModal('Access Denied', 'Only administrators can upload documents.', 'error');
                 return;
             }
 
@@ -2142,6 +2684,19 @@
         }
         
         async function addWeblink() {
+            // Check authentication
+            if (!isAuthenticated()) {
+                showLoginModal();
+                return;
+            }
+
+            // Check if user is admin
+            const user = currentUser || getUserInfo();
+            if (!user || user.role !== 'admin') {
+                showModal('Access Denied', 'Only administrators can upload web links.', 'error');
+                return;
+            }
+
             const url = document.getElementById("weblink-input").value.trim();
             const responseArea = document.getElementById("weblink-response");
             
@@ -2387,6 +2942,9 @@
                         // Sort documents by ID in descending order (newest first)
                         const sortedDocuments = result.documents.sort((a, b) => (b.id || 0) - (a.id || 0));
                         
+                        const user = currentUser || getUserInfo();
+                        const isAdmin = user && user.role === 'admin';
+                        
                         documentsList.innerHTML = sortedDocuments.map(doc => {
                             // Check if this is a URL source
                             const isUrlSource = doc.metadata && doc.metadata.source_url;
@@ -2405,16 +2963,16 @@
                             
                             return `
                                 <div class="document-item">
-                                    <button class="document-delete-btn" 
+                                    ${isAdmin ? `<button class="document-delete-btn" 
                                             onclick="deleteDocument('${escapedFilename}')" 
                                             title="Delete this document"
                                             aria-label="Delete document">
                                         ×
-                                    </button>
+                                    </button>` : ''}
                                     <div class="document-title">${titleDisplay}</div>
                                     <div class="document-info">
                                         <span>🧩 ${doc.total_chunks || 0} chunks</span>
-                                        <span>📏 ${isUrlSource ? 'Web Content' : (doc.metadata?.file_size / 1024 / 1024).toFixed(2) + ' MB'}</span>
+                                        <span>📏 ${isUrlSource ? 'Web Content' : (doc.metadata?.file_size ? (doc.metadata.file_size / 1024 / 1024).toFixed(2) + ' MB' : 'N/A')}</span>
                                         <span class="status-indicator status-healthy">✅ Active</span>
                                     </div>
                                 </div>
@@ -2439,6 +2997,13 @@
         // Delete a single document by filename
         async function deleteDocument(filename) {
             if (!filename) return;
+            
+            const user = currentUser || getUserInfo();
+            if (!user || user.role !== 'admin') {
+                showModal('Access Denied', 'Only administrators can delete documents.', 'error');
+                return;
+            }
+            
             if (!confirm(`Are you sure you want to delete "${filename}"? This will remove all chunks of this document from the database. This action cannot be undone.`)) {
                 return;
             }
@@ -2617,6 +3182,12 @@
         let chatSessionId = null;
         const CHAT_STORAGE_KEY = 'homeo_rag_chat_history';
         const CHAT_SESSION_KEY = 'homeo_rag_chat_session_id';
+        const CHAT_SOURCES_PREFIX = 'homeo_rag_chat_sources_';
+        
+        // Get per-session storage key for sources
+        function getSessionStorageKey(sessionId) {
+            return sessionId ? `${CHAT_SOURCES_PREFIX}${sessionId}` : CHAT_STORAGE_KEY;
+        }
 
         // Function to check if there are active chats or sessions
         function hasActiveChat() {
@@ -2644,24 +3215,40 @@
 
         function loadChatHistory() {
             try {
-                const raw = localStorage.getItem(CHAT_STORAGE_KEY);
-                chatMessages = Array.isArray(JSON.parse(raw)) ? JSON.parse(raw) : [];
-            } catch (_) {
-                chatMessages = [];
-            }
-            try {
                 chatSessionId = localStorage.getItem(CHAT_SESSION_KEY) || null;
             } catch (_) {
                 chatSessionId = null;
+            }
+            
+            // Load from per-session storage if session ID exists, otherwise from default storage
+            try {
+                const storageKey = getSessionStorageKey(chatSessionId);
+                const raw = localStorage.getItem(storageKey);
+                if (raw) {
+                    chatMessages = Array.isArray(JSON.parse(raw)) ? JSON.parse(raw) : [];
+                } else {
+                    // Fallback to default storage if no per-session data exists
+                    const defaultRaw = localStorage.getItem(CHAT_STORAGE_KEY);
+                    chatMessages = Array.isArray(JSON.parse(defaultRaw)) ? JSON.parse(defaultRaw) : [];
+                }
+            } catch (_) {
+                chatMessages = [];
             }
             // Update button state after loading chat history
             updateNewChatButtonState();
         }
 
         function saveChatHistory() {
-            try { localStorage.setItem(CHAT_STORAGE_KEY, JSON.stringify(chatMessages)); } catch (_) {}
             try {
-                if (chatSessionId) localStorage.setItem(CHAT_SESSION_KEY, chatSessionId);
+                // Save to per-session storage if session ID exists
+                if (chatSessionId) {
+                    const sessionKey = getSessionStorageKey(chatSessionId);
+                    localStorage.setItem(sessionKey, JSON.stringify(chatMessages));
+                    localStorage.setItem(CHAT_SESSION_KEY, chatSessionId);
+                } else {
+                    // Save to default storage if no session ID
+                    localStorage.setItem(CHAT_STORAGE_KEY, JSON.stringify(chatMessages));
+                }
             } catch (_) {}
             // Update button state after saving chat history
             updateNewChatButtonState();
@@ -2693,9 +3280,14 @@
                         }).join('')}
                     </div>
                 ` : '';
+                const copyButton = m.role === 'ai' && !isTyping && m.text ? `
+                    <button class="copy-btn" id="copy-btn-${idx}" onclick="copyToClipboard(${idx})" title="Copy response">
+                        📋
+                    </button>
+                ` : '';
                 return `
                     <div class=\"message-row ${roleClass}\">
-                        <div class=\"bubble ${roleClass}\">${textHtml}${m.role === 'ai' ? sourcesHtml : ''}</div>
+                        <div class=\"bubble ${roleClass}\">${copyButton}${textHtml}${m.role === 'ai' ? sourcesHtml : ''}</div>
                     </div>
                 `;
             }).join('');
@@ -2705,6 +3297,59 @@
         function toggleSources(idx) {
             const el = document.getElementById(`sources-${idx}`);
             if (el) el.style.display = el.style.display === 'none' ? 'block' : 'none';
+        }
+
+        async function copyToClipboard(idx) {
+            const message = chatMessages[idx];
+            if (!message || !message.text) return;
+            
+            try {
+                // Get the plain text (without HTML)
+                const textToCopy = message.text;
+                
+                // Use the Clipboard API
+                await navigator.clipboard.writeText(textToCopy);
+                
+                // Update button to show copied state
+                const copyBtn = document.getElementById(`copy-btn-${idx}`);
+                if (copyBtn) {
+                    const originalIcon = copyBtn.innerHTML;
+                    copyBtn.innerHTML = '✓';
+                    copyBtn.classList.add('copied');
+                    
+                    // Reset after 2 seconds
+                    setTimeout(() => {
+                        copyBtn.innerHTML = originalIcon;
+                        copyBtn.classList.remove('copied');
+                    }, 2000);
+                }
+            } catch (err) {
+                // Fallback for older browsers
+                const textArea = document.createElement('textarea');
+                textArea.value = message.text;
+                textArea.style.position = 'fixed';
+                textArea.style.left = '-999999px';
+                textArea.style.top = '-999999px';
+                document.body.appendChild(textArea);
+                textArea.focus();
+                textArea.select();
+                try {
+                    document.execCommand('copy');
+                    const copyBtn = document.getElementById(`copy-btn-${idx}`);
+                    if (copyBtn) {
+                        const originalIcon = copyBtn.innerHTML;
+                        copyBtn.innerHTML = '✓';
+                        copyBtn.classList.add('copied');
+                        setTimeout(() => {
+                            copyBtn.innerHTML = originalIcon;
+                            copyBtn.classList.remove('copied');
+                        }, 2000);
+                    }
+                } catch (e) {
+                    console.error('Failed to copy:', e);
+                }
+                document.body.removeChild(textArea);
+            }
         }
 
         function addMessage(role, text, extras = {}) {
@@ -2965,6 +3610,11 @@
         }
 
         async function newChat() {
+            // Save current session's data before creating new chat
+            if (chatSessionId && chatMessages.length > 0) {
+                saveChatHistory();
+            }
+            
             // Create a new session - old session is already saved in DB
             try {
                 const sidRes = await fetch(`${API_BASE}/api/chat/new`, { method: 'POST' });
@@ -2975,7 +3625,9 @@
                     chatSessionId = sidData.session_id;
                     try { 
                         localStorage.setItem(CHAT_SESSION_KEY, chatSessionId);
-                        localStorage.setItem(CHAT_STORAGE_KEY, JSON.stringify([]));
+                        // Initialize new session storage
+                        const newSessionKey = getSessionStorageKey(chatSessionId);
+                        localStorage.setItem(newSessionKey, JSON.stringify([]));
                     } catch (_) {}
                     const container = document.getElementById('chat-messages');
                     if (container) container.innerHTML = '';
@@ -3005,7 +3657,14 @@
             if (!historyList) return;
             
             try {
-                const response = await fetch(`${API_BASE}/api/chat/sessions/list`);
+                const token = getAuthToken();
+                const headers = {};
+                if (token) {
+                    headers['Authorization'] = `Bearer ${token}`;
+                }
+                const response = await fetch(`${API_BASE}/api/chat/sessions/list`, {
+                    headers: headers
+                });
                 const result = await response.json();
                 
                 if (response.ok && result.sessions) {
@@ -3054,8 +3713,19 @@
             if (!sessionId) return;
             
             try {
+                // First, try to load from localStorage to preserve sources
+                const oldSessionId = chatSessionId;
+                const oldMessages = [...chatMessages];
+                
                 // Fetch chat history from server
-                const response = await fetch(`${API_BASE}/api/chat/${sessionId}`);
+                const token = getAuthToken();
+                const headers = {};
+                if (token) {
+                    headers['Authorization'] = `Bearer ${token}`;
+                }
+                const response = await fetch(`${API_BASE}/api/chat/${sessionId}`, {
+                    headers: headers
+                });
                 const result = await response.json();
                 
                 if (response.ok && result.messages) {
@@ -3065,12 +3735,40 @@
                         localStorage.setItem(CHAT_SESSION_KEY, chatSessionId);
                     } catch (_) {}
                     
-                    // Convert server messages to chat format
-                    chatMessages = result.messages.map(msg => ({
-                        role: msg.role,
-                        text: msg.message || '',
-                        sources: [] // Sources aren't stored in DB, only messages
-                    }));
+                    // Try to load existing messages from per-session localStorage for this session
+                    let existingMessages = [];
+                    try {
+                        const sessionKey = getSessionStorageKey(sessionId);
+                        const raw = localStorage.getItem(sessionKey);
+                        if (raw) {
+                            const parsed = JSON.parse(raw);
+                            if (Array.isArray(parsed)) {
+                                existingMessages = parsed;
+                            }
+                        }
+                    } catch (_) {}
+                    
+                    // Convert server messages to chat format, preserving sources from localStorage
+                    chatMessages = result.messages.map((msg, idx) => {
+                        // Try to find matching message in existing localStorage data
+                        let sources = [];
+                        if (idx < existingMessages.length && existingMessages[idx].role === msg.role) {
+                            const existingText = existingMessages[idx].text || '';
+                            const serverText = msg.message || '';
+                            // If texts match (or are similar), preserve sources
+                            if (existingText.trim() === serverText.trim() || 
+                                (existingText.length > 0 && serverText.length > 0 && 
+                                 Math.abs(existingText.length - serverText.length) < 50)) {
+                                sources = existingMessages[idx].sources || [];
+                            }
+                        }
+                        
+                        return {
+                            role: msg.role,
+                            text: msg.message || '',
+                            sources: sources
+                        };
+                    });
                     
                     // Save to localStorage
                     saveChatHistory();
@@ -3111,6 +3809,12 @@
                 const result = await response.json();
                 
                 if (response.ok) {
+                    // Remove per-session storage for deleted session
+                    try {
+                        const sessionKey = getSessionStorageKey(sessionId);
+                        localStorage.removeItem(sessionKey);
+                    } catch (_) {}
+                    
                     // If the deleted session is the currently active one, clear it
                     if (chatSessionId === sessionId) {
                         chatMessages = [];
@@ -3140,17 +3844,69 @@
         async function loadChatHistoryFromServer() {
             if (!chatSessionId) return;
             try {
-                const response = await fetch(`${API_BASE}/api/chat/${chatSessionId}`);
+                // First, load from localStorage to preserve sources
+                const localMessages = [...chatMessages];
+                
+                // Also try to load directly from per-session localStorage as fallback
+                let localStorageMessages = [];
+                try {
+                    const sessionKey = getSessionStorageKey(chatSessionId);
+                    const raw = localStorage.getItem(sessionKey);
+                    if (raw) {
+                        const parsed = JSON.parse(raw);
+                        if (Array.isArray(parsed)) {
+                            localStorageMessages = parsed;
+                        }
+                    }
+                } catch (_) {}
+                
+                const token = getAuthToken();
+                const headers = {};
+                if (token) {
+                    headers['Authorization'] = `Bearer ${token}`;
+                }
+                const response = await fetch(`${API_BASE}/api/chat/${chatSessionId}`, {
+                    headers: headers
+                });
                 if (response.ok) {
                     const result = await response.json();
                     if (result.messages && Array.isArray(result.messages) && result.messages.length > 0) {
                         // Convert server messages to chat format
-                        const serverMessages = result.messages.map(msg => ({
-                            role: msg.role,
-                            text: msg.message || '',
-                            sources: [] // Sources aren't stored in DB, only messages
-                        }));
-                        // Merge with local messages, preferring server messages for consistency
+                        const serverMessages = result.messages.map((msg, idx) => {
+                            // Try to preserve sources from localStorage by matching message position and text
+                            let sources = [];
+                            
+                            // First try per-session localStorage (most reliable)
+                            if (idx < localStorageMessages.length && 
+                                localStorageMessages[idx].role === msg.role) {
+                                const localText = localStorageMessages[idx].text || '';
+                                const serverText = msg.message || '';
+                                if (localText.trim() === serverText.trim() || 
+                                    (localText.length > 0 && serverText.length > 0 && 
+                                     Math.abs(localText.length - serverText.length) < 50)) {
+                                    sources = localStorageMessages[idx].sources || [];
+                                }
+                            }
+                            
+                            // Fallback to current chatMessages if no sources found
+                            if (sources.length === 0 && idx < localMessages.length && localMessages[idx].role === msg.role) {
+                                const localText = localMessages[idx].text || '';
+                                const serverText = msg.message || '';
+                                // If texts match (or are similar), preserve sources
+                                if (localText.trim() === serverText.trim() || 
+                                    (localText.length > 0 && serverText.length > 0 && 
+                                     Math.abs(localText.length - serverText.length) < 50)) {
+                                    sources = localMessages[idx].sources || [];
+                                }
+                            }
+                            
+                            return {
+                                role: msg.role,
+                                text: msg.message || '',
+                                sources: sources
+                            };
+                        });
+                        // Merge with local messages, preferring server messages for consistency but preserving sources
                         chatMessages = serverMessages;
                         saveChatHistory();
                         renderChat();
@@ -3166,6 +3922,7 @@
         document.addEventListener('DOMContentLoaded', function() {
             // Setup modals
             setupLoginModal();
+            setupRegisterModal();
             setupConfirmModal();
             // Check authentication on page load
             setTimeout(() => {
