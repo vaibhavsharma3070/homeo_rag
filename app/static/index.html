@@ -1470,6 +1470,18 @@
                     weblinksNavItem.style.display = isAdmin ? 'flex' : 'none';
                 }
                 
+                // Show/hide Manage Documents section
+                const documentsNavItem = document.querySelector('.nav-item[data-section="documents"]');
+                if (documentsNavItem) {
+                    documentsNavItem.style.display = isAdmin ? 'flex' : 'none';
+                }
+                
+                // Show/hide Statistics section
+                const statsNavItem = document.querySelector('.nav-item[data-section="stats"]');
+                if (statsNavItem) {
+                    statsNavItem.style.display = isAdmin ? 'flex' : 'none';
+                }
+                
                 // Show/hide delete buttons in documents list
                 const deleteButtons = document.querySelectorAll('.document-delete-btn');
                 deleteButtons.forEach(btn => {
@@ -2138,7 +2150,7 @@
                     } finally {
                         removeAuthToken();
                         // Redirect to login page
-                        window.location.href = '/login.html';
+                        window.location.href = '/';
                     }
                 }
             );
@@ -2169,18 +2181,18 @@
                     } else {
                         // Token invalid, clear auth and redirect to login
                         removeAuthToken();
-                        window.location.href = '/login.html';
+                        window.location.href = '/';
                     }
                 } catch (error) {
                     console.error('Error verifying auth:', error);
                     // On error, redirect to login
                     removeAuthToken();
-                    window.location.href = '/login.html';
+                    window.location.href = '/';
                 }
             } else {
                 // No token or user info, redirect to login
                 console.log('No authentication found, redirecting to login');
-                window.location.href = '/login.html';
+                window.location.href = '/';
             }
         }
 
@@ -3360,6 +3372,15 @@
         }
 
         // Functions to enable/disable chat input
+        // Reset character counter
+        function resetCharCounter() {
+            const charCount = document.getElementById('char-count');
+            if (charCount) {
+                charCount.textContent = '0';
+                charCount.style.color = '#9ca3af';
+            }
+        }
+        
         // Update send button state based on input content
         function updateSendButtonState() {
             const input = document.getElementById('chat-input');
@@ -3430,6 +3451,8 @@
 
             addMessage('user', query);
             input.value = '';
+            // Reset character counter
+            resetCharCounter();
             // Reset textarea height after sending
             input.style.height = 'auto';
             input.classList.remove('expanded');
@@ -3631,6 +3654,12 @@
                     } catch (_) {}
                     const container = document.getElementById('chat-messages');
                     if (container) container.innerHTML = '';
+                    // Clear input and reset character counter
+                    const input = document.getElementById('chat-input');
+                    if (input) {
+                        input.value = '';
+                        resetCharCounter();
+                    }
                     renderChat();
                     updateNewChatButtonState();
                     // Refresh history list to show new session
@@ -3645,6 +3674,12 @@
                 try { localStorage.removeItem(CHAT_SESSION_KEY); } catch (_) {}
                 const container = document.getElementById('chat-messages');
                 if (container) container.innerHTML = '';
+                // Clear input and reset character counter
+                const input = document.getElementById('chat-input');
+                if (input) {
+                    input.value = '';
+                    resetCharCounter();
+                }
                 renderChat();
                 updateNewChatButtonState();
                 loadChatHistoryList();

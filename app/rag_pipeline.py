@@ -75,14 +75,15 @@ Rewritten question:"""
             return query
 
     def _apply_personalization_to_response(self, response: str, user_id: Optional[int] = None) -> str:
-        """Apply admin's personalization to any response (applies to all users)."""
+        """Apply shared admin personalization to any response (applies to all users and admins).
+        Personalization is shared across all admins."""
         if not hasattr(self.vector_store, 'get_user_personalization') or not hasattr(self.vector_store, 'SessionLocal'):
             return response
         
         try:
-            # Get admin's personalization (applies to all users)
+            # Get first admin's personalization (shared across all admins, applies to all users)
             with self.vector_store.SessionLocal() as db:
-                admin_user = db.query(self.vector_store.UserORM).filter_by(role='admin').first()
+                admin_user = db.query(self.vector_store.UserORM).filter_by(role='admin').order_by(self.vector_store.UserORM.id.asc()).first()
                 if not admin_user:
                     return response
                 personalization = self.vector_store.get_user_personalization(admin_user.id)
@@ -166,16 +167,17 @@ Rewritten question:"""
                 answer = self._generate_small_talk_response(query,user_id=user_id)
                 return self._create_response(query, answer, [], [], 'high', {'bypass': 'small_talk'})
             
-            # Load history
+            # Load history (filtered by user_id so each user only sees their own chat history)
             history_text = ""
             history_list = []
             if session_id and hasattr(self.vector_store, 'get_chat_history'):
                 try:
-                    rows = self.vector_store.get_chat_history(session_id)
+                    # Pass user_id to filter chat history per user (each admin has separate chat history)
+                    rows = self.vector_store.get_chat_history(session_id, user_id=user_id)
                     recent = rows[-history_turns:] if len(rows) > history_turns else rows
                     history_text = "\n".join([f"{r['role'].upper()}: {r['message']}" for r in recent])
                     history_list = [{"role": r['role'], "message": r['message']} for r in recent]
-                    logger.info(f"Loaded {len(recent)} history messages")
+                    logger.info(f"Loaded {len(recent)} history messages for user_id={user_id}")
                 except Exception as e:
                     logger.warning(f"Failed to load history: {e}")
                     logger.warning(f"Could not get user_id: {e}")

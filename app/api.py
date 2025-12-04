@@ -199,7 +199,7 @@ app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
 rag_pipeline = RAGPipeline()
 document_processor = DocumentProcessor()
 
-@app.get("/login.html")
+@app.get("/")
 async def serve_login():
     """Serve the login page."""
     login_file = static_dir / "login.html"
@@ -208,7 +208,16 @@ async def serve_login():
     else:
         raise HTTPException(status_code=404, detail="Login page not found")
 
-@app.get("/")
+@app.get("/login.html")
+async def serve_login_alias():
+    """Serve the login page (alias for /)."""
+    login_file = static_dir / "login.html"
+    if login_file.exists():
+        return FileResponse(str(login_file))
+    else:
+        raise HTTPException(status_code=404, detail="Login page not found")
+
+@app.get("/app")
 async def serve_ui():
     """Serve the main UI."""
     ui_file = static_dir / "index.html"
@@ -251,10 +260,16 @@ async def login(request: LoginRequest):
         if not user:
             raise HTTPException(status_code=401, detail="Invalid email or password")
         
-        # Get personalization
-        personalization = rag_pipeline.vector_store.get_user_personalization(user["id"])
-        if personalization:
-            user.update(personalization)
+        # Get shared personalization (shared across all admins, applies to all users)
+        try:
+            with rag_pipeline.vector_store.SessionLocal() as db:
+                admin_user = db.query(rag_pipeline.vector_store.UserORM).filter_by(role='admin').order_by(rag_pipeline.vector_store.UserORM.id.asc()).first()
+                if admin_user:
+                    personalization = rag_pipeline.vector_store.get_user_personalization(admin_user.id)
+                    if personalization:
+                        user.update(personalization)
+        except Exception as e:
+            logger.warning(f"Could not load personalization during login: {e}")
         
         # Create JWT token
         token = create_access_token(user["username"], user["id"])
@@ -320,11 +335,27 @@ async def get_current_user_info(current_user: Optional[Dict[str, Any]] = Depends
     """Get current authenticated user information."""
     if not current_user:
         raise HTTPException(status_code=401, detail="Not authenticated")
+    
+    # Get personalization from database and include it in user info
+    # Note: Personalization is shared across all admins and applies to all users
+    if hasattr(rag_pipeline, 'vector_store') and hasattr(rag_pipeline.vector_store, 'get_user_personalization'):
+        # Get first admin's personalization (shared across all admins, applies to all users)
+        try:
+            with rag_pipeline.vector_store.SessionLocal() as db:
+                admin_user = db.query(rag_pipeline.vector_store.UserORM).filter_by(role='admin').order_by(rag_pipeline.vector_store.UserORM.id.asc()).first()
+                if admin_user:
+                    personalization = rag_pipeline.vector_store.get_user_personalization(admin_user.id)
+                    if personalization:
+                        current_user.update(personalization)
+        except Exception as e:
+            logger.warning(f"Could not load personalization: {e}")
+    
     return current_user
 
 @app.get("/api/auth/personalization", tags=["Authentication"])
 async def get_personalization(current_user: Optional[Dict[str, Any]] = Depends(get_current_user)):
-    """Get personalization settings. Admin only - applies to all users."""
+    """Get personalization settings. Admin only - applies to all users.
+    Personalization is shared across all admins."""
     if not current_user:
         raise HTTPException(status_code=401, detail="Not authenticated")
     
@@ -333,11 +364,9 @@ async def get_personalization(current_user: Optional[Dict[str, Any]] = Depends(g
         raise HTTPException(status_code=403, detail="Only administrators can access personalization")
     
     try:
-        # Get admin's personalization (applies to all users)
-        # Query for admin user directly
-        admin_user = None
+        # Get first admin's personalization (shared across all admins)
         with rag_pipeline.vector_store.SessionLocal() as db:
-            admin_user = db.query(rag_pipeline.vector_store.UserORM).filter_by(role='admin').first()
+            admin_user = db.query(rag_pipeline.vector_store.UserORM).filter_by(role='admin').order_by(rag_pipeline.vector_store.UserORM.id.asc()).first()
         
         if admin_user:
             personalization = rag_pipeline.vector_store.get_user_personalization(admin_user.id)
@@ -361,7 +390,8 @@ async def save_personalization(
     personalization: Dict[str, Any],
     current_user: Optional[Dict[str, Any]] = Depends(get_current_user)
 ):
-    """Save personalization settings. Admin only - applies to all users."""
+    """Save personalization settings. Admin only - applies to all users.
+    Personalization is shared across all admins - any admin can change it."""
     if not current_user:
         raise HTTPException(status_code=401, detail="Not authenticated")
     
@@ -370,14 +400,20 @@ async def save_personalization(
         raise HTTPException(status_code=403, detail="Only administrators can save personalization")
     
     try:
-        # Save to admin's personalization (applies to all users)
-        success = rag_pipeline.vector_store.save_user_personalization(
-            current_user["id"], 
-            personalization
-        )
+        # Get the first admin user ID - personalization is shared across all admins
+        with rag_pipeline.vector_store.SessionLocal() as db:
+            admin_user = db.query(rag_pipeline.vector_store.UserORM).filter_by(role='admin').order_by(rag_pipeline.vector_store.UserORM.id.asc()).first()
+            if not admin_user:
+                raise HTTPException(status_code=500, detail="No admin user found")
+            
+            # Save to first admin's personalization (shared across all admins)
+            success = rag_pipeline.vector_store.save_user_personalization(
+                admin_user.id, 
+                personalization
+            )
         
         if success:
-            return {"success": True, "message": "Personalization saved successfully. This applies to all users."}
+            return {"success": True, "message": "Personalization saved successfully. This applies to all users and admins."}
         else:
             raise HTTPException(status_code=500, detail="Failed to save personalization")
     except HTTPException:
@@ -816,22 +852,23 @@ async def get_chat_history(
     session_id: str,
     current_user: Optional[Dict[str, Any]] = Depends(get_current_user)
 ):
-    """Return stored chat history for a given session. Users can only see their own chats."""
+    """Return stored chat history for a given session. Each user (including admins) can only see their own chats."""
     try:
-        # For non-admin users, verify the session belongs to them
-        if current_user and current_user.get('role') != 'admin':
-            user_id = current_user.get("id")
-            # Verify session belongs to this user by checking if any messages exist for this session and user
-            if hasattr(rag_pipeline, 'vector_store'):
-                with rag_pipeline.vector_store.SessionLocal() as db:
-                    session_check = db.query(rag_pipeline.vector_store.ChatMessageORM).filter_by(
-                        session_id=session_id,
-                        user_id=user_id
-                    ).first()
-                    if not session_check:
-                        raise HTTPException(status_code=403, detail="You can only access your own chat sessions")
-        else:
-            user_id = None  # Admin can see all
+        if not current_user:
+            raise HTTPException(status_code=401, detail="Not authenticated")
+        
+        # All users (including admins) can only see their own chat history
+        user_id = current_user.get("id")
+        
+        # Verify session belongs to this user by checking if any messages exist for this session and user
+        if hasattr(rag_pipeline, 'vector_store'):
+            with rag_pipeline.vector_store.SessionLocal() as db:
+                session_check = db.query(rag_pipeline.vector_store.ChatMessageORM).filter_by(
+                    session_id=session_id,
+                    user_id=user_id
+                ).first()
+                if not session_check:
+                    raise HTTPException(status_code=403, detail="You can only access your own chat sessions")
         
         if hasattr(rag_pipeline, 'vector_store') and hasattr(rag_pipeline.vector_store, 'get_chat_history'):
             rows = rag_pipeline.vector_store.get_chat_history(session_id, user_id=user_id)
@@ -849,9 +886,14 @@ async def get_chat_history(
 async def list_chat_sessions(
     current_user: Optional[Dict[str, Any]] = Depends(get_current_user)
 ):
-    """Return list of all chat sessions with their first message as title. Users can only see their own chats."""
+    """Return list of all chat sessions with their first message as title. Each user (including admins) can only see their own chats."""
     try:
-        user_id = current_user.get("id") if current_user and current_user.get('role') != 'admin' else None
+        if not current_user:
+            raise HTTPException(status_code=401, detail="Not authenticated")
+        
+        # All users (including admins) can only see their own chat sessions
+        user_id = current_user.get("id")
+        
         if hasattr(rag_pipeline, 'vector_store') and hasattr(rag_pipeline.vector_store, 'get_all_chat_sessions'):
             sessions_data = rag_pipeline.vector_store.get_all_chat_sessions(user_id=user_id)
             sessions = [

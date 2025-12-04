@@ -203,7 +203,7 @@
         function checkAuth() {
             const token = localStorage.getItem('homeo_rag_auth_token');
             if (token) {
-                window.location.href = '/';
+                window.location.href = '/app';
             }
         }
 
@@ -265,7 +265,7 @@
                     localStorage.setItem('homeo_rag_user_info', JSON.stringify(result.user));
                     
                     // Redirect to main app
-                    window.location.href = '/';
+                    window.location.href = '/app';
                 } else {
                     errorDiv.textContent = result.detail || 'Invalid email or password';
                     errorDiv.classList.add('show');
