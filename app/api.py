@@ -264,10 +264,23 @@ async def login(request: LoginRequest):
         if not hasattr(rag_pipeline, 'vector_store') or not hasattr(rag_pipeline.vector_store, 'verify_user_by_email'):
             raise HTTPException(status_code=500, detail="Authentication not available")
         
+        # First check if user exists
+        user_exists = False
+        try:
+            with rag_pipeline.vector_store.SessionLocal() as db:
+                existing_user = db.query(rag_pipeline.vector_store.UserORM).filter_by(email=request.email).first()
+                user_exists = existing_user is not None
+        except Exception as e:
+            logger.error(f"Error checking if user exists: {e}")
+        
+        if not user_exists:
+            raise HTTPException(status_code=401, detail="The account does not exist")
+        
+        # Now verify password
         user = rag_pipeline.vector_store.verify_user_by_email(request.email, request.password)
         
         if not user:
-            raise HTTPException(status_code=401, detail="Invalid email or password")
+            raise HTTPException(status_code=401, detail="Invalid password")
         
         # Get shared personalization (shared across all admins, applies to all users)
         try:

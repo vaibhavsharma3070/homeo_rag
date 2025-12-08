@@ -437,6 +437,7 @@ def run_agent(user_input: str, history: List[Dict[str, str]] = None, max_iterati
     3. If the tool returns patient records, extract key details (name, age, condition, treatment)
     4. Format your response naturally, as if explaining to a colleague
     5. If tool returns "NO_RESULTS_FOUND", state clearly: "I don't have information about that patient in the database"
+    6. Please don't say Good morning each time
 
     REQUIRED OUTPUT FORMAT:
     ✅ Good: "Patient H002 is a 41-year-old male who visited on August 12, 2024 with multiple filiform warts..."

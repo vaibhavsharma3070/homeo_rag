@@ -845,7 +845,6 @@
             transition: all 0.2s ease;
             width: 42px;
             height: 42px;
-            display: flex;
             align-items: center;
             justify-content: center;
             touch-action: manipulation;
@@ -883,6 +882,11 @@
             /* Mobile Menu Toggle */
             .mobile-menu-toggle {
                 display: flex !important;
+            }
+            
+            /* Hide toggle when mobile menu is open */
+            body.mobile-menu-open .mobile-menu-toggle {
+                display: none !important;
             }
 
             /* Sidebar - Hidden by default on mobile, shown as overlay when toggled */
@@ -1321,6 +1325,7 @@
         body.chat-fullscreen .sidebar { display: none; }
         body.chat-fullscreen .container { margin: 0; padding: 0; height: 100vh; }
         body.chat-fullscreen .chat-wrapper { height: 95vh; border-radius: 0; }
+        body.chat-fullscreen .mobile-menu-toggle { display: none !important; }
 
         /* Fancy button subtle shimmer */
         .btn { position: relative; overflow: hidden; }
@@ -2708,6 +2713,11 @@
             if (window.innerWidth <= 768) {
                 closeMobileMenu();
             }
+            
+            // Save current section to localStorage
+            try {
+                localStorage.setItem('currentSection', section);
+            } catch (_) {}
             
             // Toggle active nav buttons
             document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
@@ -4536,8 +4546,21 @@
             refreshUploadedDocsIndex();
             // Update button state after initialization
             updateNewChatButtonState();
-            // Default to chat view in new layout
-            navigate('query', document.querySelector('.nav-item[data-section="query"]'));
+            // Restore last viewed section or default to query
+            let savedSection = 'query';
+            try {
+                const saved = localStorage.getItem('currentSection');
+                if (saved && ['upload', 'weblinks', 'query', 'documents', 'stats'].includes(saved)) {
+                    savedSection = saved;
+                }
+            } catch (_) {}
+            const navBtn = document.querySelector(`.nav-item[data-section="${savedSection}"]`);
+            if (navBtn) {
+                navigate(savedSection, navBtn);
+            } else {
+                // Fallback to query if saved section button not found
+                navigate('query', document.querySelector('.nav-item[data-section="query"]'));
+            }
         });
 
         // Build/update an index of uploaded documents from the server

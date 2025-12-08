@@ -455,6 +455,7 @@ Rewritten question:"""
     - Please don't add any markdown formatting in the response.
     - Do NOT use multiple languages in the response, Answer must be only in any one language.
     - Please Don't use Here's the rewritten response, adhering to the user's preferences while maintaining the factual content:, From database these kind of words in the response.
+    - Please don't say Good morning each time
     
     ## RULES:
     - Please Don't be hallucinating, if you don't have the information, say so.
