@@ -3016,35 +3016,53 @@
                 return;
             }
             
-            if (!confirm(`Are you sure you want to delete "${filename}"? This will remove all chunks of this document from the database. This action cannot be undone.`)) {
-                return;
-            }
-            
-            // Disable the clicked button to prevent duplicates
-            const deleteBtns = Array.from(document.querySelectorAll('.document-delete-btn'));
-            deleteBtns.forEach(b => b.disabled = true);
-            
-            try {
-                // URL encode the filename for the API call
-                const encodedFilename = encodeURIComponent(filename);
-                const res = await fetch(`${API_BASE}/api/documents/${encodedFilename}`, { 
-                    method: 'DELETE' 
-                });
-                const data = await res.json().catch(() => ({}));
-                
-                if (!res.ok) {
-                    throw new Error(data.detail || 'Failed to delete document');
+            showConfirmModal(
+                'Delete Document',
+                `Are you sure you want to delete "${filename}"? This will remove all chunks of this document from the database. This action cannot be undone.`,
+                async () => {
+                    // Disable the clicked button to prevent duplicates
+                    const deleteBtns = Array.from(document.querySelectorAll('.document-delete-btn'));
+                    deleteBtns.forEach(b => b.disabled = true);
+                    
+                    try {
+                        const token = getAuthToken();
+                        if (!token) {
+                            throw new Error('Not authenticated');
+                        }
+                        
+                        // Debug logging
+                        console.log('deleteDocument: User info:', user);
+                        console.log('deleteDocument: User role:', user?.role);
+                        console.log('deleteDocument: Token exists:', !!token);
+                        
+                        // URL encode the filename for the API call
+                        const encodedFilename = encodeURIComponent(filename);
+                        console.log('deleteDocument: Making DELETE request to:', `${API_BASE}/api/documents/${encodedFilename}`);
+                        
+                        const res = await fetch(`${API_BASE}/api/documents/${encodedFilename}`, { 
+                            method: 'DELETE',
+                            headers: {
+                                'Authorization': `Bearer ${token}`,
+                                'Content-Type': 'application/json'
+                            }
+                        });
+                        const data = await res.json().catch(() => ({}));
+                        console.log('deleteDocument: Response status:', res.status, 'Response data:', data);
+                        
+                        if (!res.ok) {
+                            throw new Error(data.detail || 'Failed to delete document');
+                        }
+                        
+                        // Refresh the uploaded docs index and reload documents list
+                        await refreshUploadedDocsIndex();
+                        await loadDocuments();
+                    } catch (e) {
+                        showModal('Delete Failed', e.message || 'Unable to delete document.', 'error');
+                    } finally {
+                        deleteBtns.forEach(b => b.disabled = false);
+                    }
                 }
-                
-                // Refresh the uploaded docs index and reload documents list
-                await refreshUploadedDocsIndex();
-                await loadDocuments();
-                showModal('Document Deleted', `The document "${filename}" has been deleted successfully.`, 'success');
-            } catch (e) {
-                showModal('Delete Failed', e.message || 'Unable to delete document.', 'error');
-            } finally {
-                deleteBtns.forEach(b => b.disabled = false);
-            }
+            );
         }
 
         async function loadStats() {

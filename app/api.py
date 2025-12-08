@@ -68,27 +68,36 @@ async def get_current_user(credentials: Optional[HTTPAuthorizationCredentials] =
     """Get current authenticated user from token."""
     try:
         if not credentials:
+            logger.debug("get_current_user: No credentials provided")
             return None
         
         token = credentials.credentials
         if not token:
+            logger.debug("get_current_user: No token in credentials")
             return None
             
         payload = verify_token(token)
         if not payload:
+            logger.debug("get_current_user: Token verification failed")
             return None
         
         username = payload.get("sub")
         if not username:
+            logger.debug("get_current_user: No username in token payload")
             return None
         
         # Get user info from database
         if hasattr(rag_pipeline, 'vector_store') and hasattr(rag_pipeline.vector_store, 'get_user_by_username'):
             user = rag_pipeline.vector_store.get_user_by_username(username)
+            if user:
+                logger.debug(f"get_current_user: Found user {username}, role: {user.get('role')}")
+            else:
+                logger.warning(f"get_current_user: User {username} not found in database")
             return user
+        logger.warning("get_current_user: vector_store or get_user_by_username not available")
         return None
     except Exception as e:
-        logger.error(f"Error in get_current_user: {e}")
+        logger.error(f"Error in get_current_user: {e}", exc_info=True)
         return None
 
 def check_worker_ready():
@@ -948,8 +957,20 @@ async def delete_document(
     current_user: Optional[Dict[str, Any]] = Depends(get_current_user)
 ):
     """Delete a single document and all its chunks from the knowledge base. Admin only."""
-    # Check if user is admin
-    if not current_user or current_user.get('role') != 'admin':
+    # Debug logging
+    logger.info(f"DELETE /api/documents/{filename} - current_user: {current_user}")
+    if current_user:
+        logger.info(f"User role: {current_user.get('role')}, User ID: {current_user.get('id')}, Username: {current_user.get('username')}")
+    
+    # Check if user is admin (case-insensitive check)
+    if not current_user:
+        logger.warning(f"DELETE /api/documents/{filename} - No current_user (not authenticated)")
+        raise HTTPException(status_code=403, detail="Only administrators can delete documents")
+    
+    user_role = current_user.get('role')
+    # Case-insensitive role check
+    if not user_role or str(user_role).lower() != 'admin':
+        logger.warning(f"DELETE /api/documents/{filename} - User {current_user.get('username')} (ID: {current_user.get('id')}) has role '{user_role}', not 'admin'")
         raise HTTPException(status_code=403, detail="Only administrators can delete documents")
     try:
         # URL decode the filename in case it has special characters

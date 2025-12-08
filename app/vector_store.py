@@ -460,16 +460,19 @@ class PGVectorStore:
             with self.SessionLocal() as db:
                 user = db.query(self.UserORM).filter_by(username=username).first()
                 if user:
+                    user_role = getattr(user, 'role', 'user')
+                    logger.debug(f"get_user_by_username: Found user {username} (ID: {user.id}), role from DB: '{user_role}'")
                     return {
                         "id": user.id,
                         "username": user.username,
                         "email": getattr(user, 'email', None),
-                        "role": getattr(user, 'role', 'user'),
+                        "role": user_role,
                         "created_at": user.created_at
                     }
+                logger.warning(f"get_user_by_username: User {username} not found")
                 return None
         except Exception as e:
-            logger.error(f"Error getting user by username: {e}")
+            logger.error(f"Error getting user by username: {e}", exc_info=True)
             return None
 
     def create_user(self, username: str, password: str, email: Optional[str] = None, role: str = 'user') -> Optional[Dict[str, Any]]:
