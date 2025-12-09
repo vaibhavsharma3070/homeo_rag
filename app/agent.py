@@ -445,8 +445,9 @@ def run_agent(user_input: str, history: List[Dict[str, str]] = None, max_iterati
     if history:
         history_context = "\n".join([f"{h['role'].upper()}: {h['message']}" for h in history[-3:]])
     
-    # Get username from user_id if available
+    # Get username and nickname from personalization if available
     username = None
+    nickname = None
     if user_id and vector_store:
         try:
             if hasattr(vector_store, 'SessionLocal') and hasattr(vector_store, 'UserORM'):
@@ -454,8 +455,15 @@ def run_agent(user_input: str, history: List[Dict[str, str]] = None, max_iterati
                     user = db.query(vector_store.UserORM).filter_by(id=user_id).first()
                     if user:
                         username = user.username
+                    
+                    # Get admin's personalization (shared across all admins)
+                    admin_user = db.query(vector_store.UserORM).filter_by(role='admin').order_by(vector_store.UserORM.id.asc()).first()
+                    if admin_user and hasattr(vector_store, 'get_user_personalization'):
+                        personalization = vector_store.get_user_personalization(admin_user.id)
+                        if personalization and personalization.get('nickname'):
+                            nickname = personalization['nickname'].strip()
         except Exception as e:
-            print(f"⚠️ Could not retrieve username for user_id {user_id}: {e}")
+            print(f"⚠️ Could not retrieve user info for user_id {user_id}: {e}")
     
     # Track filenames from tool results
     agent_filenames = []
@@ -472,9 +480,12 @@ def run_agent(user_input: str, history: List[Dict[str, str]] = None, max_iterati
     3. If the tool returns patient records, extract key details (name, age, condition, treatment)
     4. Format your response naturally, as if explaining to a colleague
     5. If tool returns "NO_RESULTS_FOUND", state clearly: "I don't have information about that patient in the database"
-    6. Please don't say Good morning each time
-    7. Nickname from personalization is your name. Assume your self as an "nickname"."""
-
+    6. Please don't say Good morning each time"""
+    
+    # Add nickname as AI identity if available
+    if nickname:
+        system_content += f"\n    7. Your name is {nickname}. This is your identity. Always refer to yourself as {nickname}. When asked 'who are you?' or 'what is your name?', respond that you are {nickname}."
+    
     # Add dynamic username information if available
     if username:
         system_content += f"\n    8. If the user asks about their name or who they are, their username is: {username}"

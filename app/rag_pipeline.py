@@ -80,17 +80,33 @@ Rewritten question:"""
         if not query or not query.strip():
             return False
         
+        # Quick check for identity questions - these should always get personalization
+        query_lower = query.lower().strip()
+        identity_patterns = [
+            r'who are you',
+            r'what is your name',
+            r'what\'s your name',
+            r'what are you',
+            r'introduce yourself',
+            r'tell me about yourself'
+        ]
+        
+        for pattern in identity_patterns:
+            if re.search(pattern, query_lower):
+                logger.info(f"Identity question detected: '{query}' -> CONSULTATION (needs personalization)")
+                return False  # Return False = CONSULTATION = apply personalization
+        
         try:
             classification_prompt = f"""Analyze this user query and determine if it's asking for factual information or if it's a consultation/advice query.
 
 Query: "{query}"
 
-A FACTUAL query asks for specific data points like:
-- Names, ages, dates, contact information
+A FACTUAL query asks for specific data points from records/database like:
+- Patient names, ages, dates, contact information
 - Patient IDs, record numbers
-- Specific values (height, weight, BMI, etc.)
-- What was prescribed/recommended
-- Historical information retrieval
+- Specific values from records (height, weight, BMI, etc.)
+- What was prescribed/recommended to a specific patient
+- Historical information retrieval about patients
 
 A CONSULTATION query asks for:
 - Medical advice or recommendations
@@ -98,6 +114,9 @@ A CONSULTATION query asks for:
 - Lifestyle tips or guidance
 - Explanations about remedies or conditions
 - General health information
+- Questions about yourself (who are you, what is your name, etc.)
+
+IMPORTANT: Questions about the AI's identity ("who are you", "what is your name") are ALWAYS CONSULTATION queries, not FACTUAL.
 
 Respond with ONLY one word: "FACTUAL" or "CONSULTATION"
 
@@ -152,6 +171,11 @@ Classification:"""
             
             # Build a refinement prompt only if we have something to personalize
             refinement_parts = []
+            
+            # Add AI identity from nickname first
+            if has_nickname:
+                nickname = personalization['nickname'].strip()
+                refinement_parts.append(f"Your identity: You are {nickname}. This is your name. Always refer to yourself as {nickname}.")
             
             if has_custom_instructions:
                 refinement_parts.append(f"User's custom instructions: {personalization['custom_instructions']}")
@@ -473,6 +497,12 @@ Classification:"""
                                 print('added custom instructions')
                                 system_parts.append(f"\n## Custom Instructions:\n{personalization['custom_instructions']}")
                             
+                            # Add AI identity from nickname
+                            if personalization.get('nickname'):
+                                nickname = personalization['nickname'].strip()
+                                print(f'added nickname as AI identity: {nickname}')
+                                system_parts.append(f"\n## Your Identity:\nYou are {nickname}. This is your name. Always refer to yourself as {nickname}.")
+                            
                             # Add user context
                             user_context_parts = []
                             if personalization.get('nickname'):
@@ -526,7 +556,6 @@ Classification:"""
     ## RULES:
     - Please Don't be hallucinating, if you don't have the information, say so.
     - Please Don't be too verbose, be concise and to the point.
-    - Nickname from personalization is your name. Assume your self as an "nickname".
 
     Answer:""")
         
