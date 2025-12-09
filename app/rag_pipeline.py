@@ -74,9 +74,58 @@ Rewritten question:"""
             logger.warning(f"Pronoun resolution failed: {e}, using original query")
             return query
 
-    def _apply_personalization_to_response(self, response: str, user_id: Optional[int] = None) -> str:
+    def _is_factual_query(self, query: str) -> bool:
+        """Dynamically detect if a query is asking for factual/informational data 
+        (name, age, date, etc.) vs a consultation/symptom-based query using LLM."""
+        if not query or not query.strip():
+            return False
+        
+        try:
+            classification_prompt = f"""Analyze this user query and determine if it's asking for factual information or if it's a consultation/advice query.
+
+Query: "{query}"
+
+A FACTUAL query asks for specific data points like:
+- Names, ages, dates, contact information
+- Patient IDs, record numbers
+- Specific values (height, weight, BMI, etc.)
+- What was prescribed/recommended
+- Historical information retrieval
+
+A CONSULTATION query asks for:
+- Medical advice or recommendations
+- Symptom analysis or treatment suggestions
+- Lifestyle tips or guidance
+- Explanations about remedies or conditions
+- General health information
+
+Respond with ONLY one word: "FACTUAL" or "CONSULTATION"
+
+Classification:"""
+            
+            response = self.llm_connector.generate_response(classification_prompt).strip().upper()
+            
+            # Check if response indicates factual query
+            is_factual = "FACTUAL" in response and "CONSULTATION" not in response
+            
+            logger.info(f"Query classification: '{query}' -> {'FACTUAL' if is_factual else 'CONSULTATION'}")
+            return is_factual
+            
+        except Exception as e:
+            logger.warning(f"Failed to classify query dynamically: {e}, defaulting to consultation mode")
+            # On error, default to consultation (apply personalization) to be safe
+            return False
+
+    def _apply_personalization_to_response(self, response: str, user_id: Optional[int] = None, query: Optional[str] = None) -> str:
         """Apply shared admin personalization to any response (applies to all users and admins).
-        Personalization is shared across all admins."""
+        Personalization is shared across all admins.
+        For factual queries, returns the response as-is without adding consultation advice."""
+        
+        # If this is a factual query, skip personalization and return direct answer
+        if query and self._is_factual_query(query):
+            logger.info(f"Factual query detected - skipping personalization to return direct answer")
+            return response
+        
         if not hasattr(self.vector_store, 'get_user_personalization') or not hasattr(self.vector_store, 'SessionLocal'):
             return response
         
@@ -194,10 +243,11 @@ Rewritten question:"""
             # STEP 1: TRY AGENT FIRST with history context
             logger.info("🤖 Step 1: Attempting intelligent agent search...")
             agent_result = None
+            agent_filenames = []
             agent_failed = False
             
             try:
-                agent_result = self.vector_store.search_with_agent(query, history=history_list, user_id=user_id)
+                agent_result, agent_filenames = self.vector_store.search_with_agent(query, history=history_list, user_id=user_id)
                 
                 # Check if agent result is actually useful
                 if agent_result:
@@ -234,20 +284,35 @@ Rewritten question:"""
                     else:
                         logger.info("✅ Agent successfully answered the query")
                         
-                        # ✅ GET ACTUAL SOURCES FROM VECTOR SEARCH
+                        # ✅ GET ACTUAL SOURCES ONLY IF AGENT QUERIED THE KNOWLEDGE BASE (has filenames)
+                        # Only show sources when agent actually retrieved data from KB, not for greetings/system queries
                         agent_sources = []
                         try:
-                            source_results = self.vector_store.search(query, top_k=3)
-                            if source_results:
-                                agent_sources = self._create_sources(source_results)
-                                logger.info(f"✓ Fetched {len(agent_sources)} source(s) for agent result")
+                            if agent_filenames:
+                                # Agent queried the KB and got filenames - search for documents matching those filenames
+                                logger.info(f"🔍 Searching for sources matching agent filenames: {agent_filenames}")
+                                source_results = self.vector_store.search_by_filenames(agent_filenames, query, top_k=5)
+                                if source_results:
+                                    agent_sources = self._create_sources(source_results)
+                                    logger.info(f"✓ Fetched {len(agent_sources)} source(s) matching agent filenames")
+                                else:
+                                    # Filename search failed - but we know agent queried KB, so try regular search
+                                    logger.warning("Filename search returned no results, trying regular vector search")
+                                    source_results = self.vector_store.search(query, top_k=3)
+                                    if source_results:
+                                        agent_sources = self._create_sources(source_results)
+                            else:
+                                # No filenames = agent didn't query KB (greetings, system questions, etc.)
+                                # Don't show sources for these types of queries
+                                logger.info("No filenames from agent - this query didn't retrieve from KB, so no sources will be shown")
                         except Exception as src_error:
                             logger.warning(f"Could not fetch sources for agent result: {src_error}")
                         
                         print(f"🔍 DEBUG before personalized_answer: agent_result={agent_result}, user_id={user_id}")
                         personalized_answer = self._apply_personalization_to_response(
                             agent_result, 
-                            user_id=user_id
+                            user_id=user_id,
+                            query=original_query
                         )
                         
                         # ✅ USE REAL SOURCES (with actual filenames)
@@ -457,9 +522,11 @@ Rewritten question:"""
     - Please Don't use Here's the rewritten response, adhering to the user's preferences while maintaining the factual content:, From database these kind of words in the response.
     - Please don't say Good morning each time
     
+    
     ## RULES:
     - Please Don't be hallucinating, if you don't have the information, say so.
     - Please Don't be too verbose, be concise and to the point.
+    - Nickname from personalization is your name. Assume your self as an "nickname".
 
     Answer:""")
         
@@ -550,7 +617,8 @@ Response:"""
             response = self.llm_connector.generate_response(prompt).strip()
             personalized_answer = self._apply_personalization_to_response(
                 response, 
-                user_id=user_id
+                user_id=user_id,
+                query=text
             )
             return personalized_answer
         except:

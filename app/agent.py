@@ -289,10 +289,10 @@ def _simple_fallback_query(user_question: str) -> Tuple[str, List[Any], Dict[str
 # ----------------------
 # Format Results for User
 # ----------------------
-def _format_results(rows: List[Dict], sql: str, params: List, debug: Dict, user_question: str) -> str:
-    """Format query results - return RAW data for LLM to process."""
+def _format_results(rows: List[Dict], sql: str, params: List, debug: Dict, user_question: str) -> Tuple[str, List[str]]:
+    """Format query results - return RAW data for LLM to process and list of filenames."""
     if not rows:
-        return "NO_RESULTS_FOUND"
+        return "NO_RESULTS_FOUND", []
     
     # Extract search terms from question
     search_terms = []
@@ -309,13 +309,26 @@ def _format_results(rows: List[Dict], sql: str, params: List, debug: Dict, user_
     if name_parts:
         search_terms.extend(name_parts)
     
-    # Collect all matching records
+    # Collect all matching records and track filenames
     matching_records = []
+    filenames_set = set()
     
     for row in rows:
         doc = row.get('document', '').strip()
         if not doc:
             continue
+        
+        # Extract filename from metadata
+        metadata = row.get('cmetadata', {})
+        if isinstance(metadata, str):
+            try:
+                metadata = json.loads(metadata)
+            except:
+                metadata = {}
+        
+        filename = metadata.get('filename', '')
+        if filename:
+            filenames_set.add(filename)
         
         # Split by RECORD BREAK if it exists
         if '--- RECORD BREAK ---' in doc:
@@ -354,12 +367,12 @@ def _format_results(rows: List[Dict], sql: str, params: List, debug: Dict, user_
             # Add the raw record
             matching_records.append(record)
     
-    # Return RAW data for LLM to process
+    # Return RAW data for LLM to process and filenames
     if not matching_records:
-        return "NO_RESULTS_FOUND"
+        return "NO_RESULTS_FOUND", []
     
-    # Return records separated by delimiter
-    return "\n\n=== RECORD ===\n\n".join(matching_records)
+    # Return records separated by delimiter and list of unique filenames
+    return "\n\n=== RECORD ===\n\n".join(matching_records), list(filenames_set)
 
 # ----------------------
 # Main Tool: query_knowledge_base
@@ -399,8 +412,15 @@ def query_knowledge_base(user_question: str) -> str:
             cursor.execute(sql, params)
             rows = cursor.fetchall()
         
-        # Format and return results
-        result = _format_results(rows, sql, params, debug, user_question)
+        # Format and return results (with filenames)
+        result, filenames = _format_results(rows, sql, params, debug, user_question)
+        
+        # Store filenames in a global or return them somehow
+        # For now, we'll append filenames to the result in a special format
+        # that can be extracted later, or we'll modify the return to include metadata
+        if filenames and result != "NO_RESULTS_FOUND":
+            # Store filenames in debug info that can be accessed
+            debug['filenames'] = filenames
         
         cursor.close()
         conn.close()
@@ -418,12 +438,27 @@ def query_knowledge_base(user_question: str) -> str:
 tools = [query_knowledge_base]
 model_with_tools = model.bind_tools(tools)
 
-def run_agent(user_input: str, history: List[Dict[str, str]] = None, max_iterations: int = 5, user_id: Optional[int] = None, vector_store = None) -> str:
-    """Run the agent with conversation history context."""
+def run_agent(user_input: str, history: List[Dict[str, str]] = None, max_iterations: int = 5, user_id: Optional[int] = None, vector_store = None) -> Tuple[str, List[str]]:
+    """Run the agent with conversation history context. Returns (response, filenames)."""
     
     history_context = ""
     if history:
         history_context = "\n".join([f"{h['role'].upper()}: {h['message']}" for h in history[-3:]])
+    
+    # Get username from user_id if available
+    username = None
+    if user_id and vector_store:
+        try:
+            if hasattr(vector_store, 'SessionLocal') and hasattr(vector_store, 'UserORM'):
+                with vector_store.SessionLocal() as db:
+                    user = db.query(vector_store.UserORM).filter_by(id=user_id).first()
+                    if user:
+                        username = user.username
+        except Exception as e:
+            print(f"⚠️ Could not retrieve username for user_id {user_id}: {e}")
+    
+    # Track filenames from tool results
+    agent_filenames = []
     
     system_content = """You are a helpful medical records assistant with access to a patient database.
 
@@ -438,6 +473,13 @@ def run_agent(user_input: str, history: List[Dict[str, str]] = None, max_iterati
     4. Format your response naturally, as if explaining to a colleague
     5. If tool returns "NO_RESULTS_FOUND", state clearly: "I don't have information about that patient in the database"
     6. Please don't say Good morning each time
+    7. Nickname from personalization is your name. Assume your self as an "nickname"."""
+
+    # Add dynamic username information if available
+    if username:
+        system_content += f"\n    8. If the user asks about their name or who they are, their username is: {username}"
+
+    system_content += """
 
     REQUIRED OUTPUT FORMAT:
     ✅ Good: "Patient H002 is a 41-year-old male who visited on August 12, 2024 with multiple filiform warts..."
@@ -493,14 +535,18 @@ def run_agent(user_input: str, history: List[Dict[str, str]] = None, max_iterati
                         cursor.execute(sql, params)
                         rows = cursor.fetchall()
                         
-                        tool_result = _format_results(rows, sql, params, debug, call['args'].get('user_question'))
+                        tool_result, filenames = _format_results(rows, sql, params, debug, call['args'].get('user_question'))
+                        if filenames:
+                            agent_filenames.extend(filenames)
                         print('tool_result ===========================================', tool_result[:500])
+                        print('filenames ===========================================', filenames)
 
                         cursor.close()
                         conn.close()
                     except Exception as e:
                         print(f"❌ Database query error: {e}")
                         tool_result = "NO_RESULTS_FOUND"
+                        filenames = []
                     
                     print(f"\n📦 Tool Result Preview:\n{tool_result[:300]}...\n")
                     
@@ -549,7 +595,7 @@ def run_agent(user_input: str, history: List[Dict[str, str]] = None, max_iterati
                         
                         if retry_response.content and retry_response.content.strip():
                             print(f"✅ Retry successful! Got {len(retry_response.content)} chars")
-                            return retry_response.content.strip()
+                            return retry_response.content.strip(), list(set(agent_filenames))
                         else:
                             print("❌ Retry also returned empty - using fallback")
                     except Exception as retry_error:
@@ -567,14 +613,14 @@ def run_agent(user_input: str, history: List[Dict[str, str]] = None, max_iterati
                                 patient_info.append(line.strip())
                         
                         if patient_info:
-                            return "Patient details: " + " | ".join(patient_info)
+                            return "Patient details: " + " | ".join(patient_info), list(set(agent_filenames))
                         else:
-                            return "Based on the records: " + ' '.join(lines[:5])
+                            return "Based on the records: " + ' '.join(lines[:5]), list(set(agent_filenames))
                 
-                return "I found patient records but couldn't generate a proper summary. Please try again."
+                return "I found patient records but couldn't generate a proper summary. Please try again.", list(set(agent_filenames))
             
             print(f"✅ Returning final answer ({len(response.content)} chars)")
-            return response.content
+            return response.content, list(set(agent_filenames))
 
 # ----------------------
 # Main Execution
@@ -591,9 +637,11 @@ if __name__ == '__main__':
     print(f"\n🎯 Processing: {question}\n")
     print("=" * 60)
     
-    answer = run_agent(question)
+    answer, filenames = run_agent(question)
     
     print("\n" + "=" * 60)
     print("✨ FINAL ANSWER:")
     print("=" * 60)
     print(answer)
+    if filenames:
+        print("\n📄 Sources:", ", ".join(filenames))

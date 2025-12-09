@@ -268,7 +268,7 @@ async def login(request: LoginRequest):
         user_exists = False
         try:
             with rag_pipeline.vector_store.SessionLocal() as db:
-                existing_user = db.query(rag_pipeline.vector_store.UserORM).filter_by(email=request.email).first()
+                existing_user = db.query(rag_pipeline.vector_store.UserORM).filter_by(email=request.email.lower()).first()
                 user_exists = existing_user is not None
         except Exception as e:
             logger.error(f"Error checking if user exists: {e}")
@@ -277,7 +277,7 @@ async def login(request: LoginRequest):
             raise HTTPException(status_code=401, detail="The account does not exist")
         
         # Now verify password
-        user = rag_pipeline.vector_store.verify_user_by_email(request.email, request.password)
+        user = rag_pipeline.vector_store.verify_user_by_email(request.email.lower(), request.password)
         
         if not user:
             raise HTTPException(status_code=401, detail="Invalid password")
@@ -505,7 +505,7 @@ async def create_user_admin(
         user = rag_pipeline.vector_store.create_user(
             username=request.username,
             password=request.password,
-            email=request.email
+            email=request.email.lower()
         )
         
         if not user:

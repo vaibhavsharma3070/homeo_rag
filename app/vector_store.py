@@ -1,5 +1,6 @@
 import os
 import pickle
+import json
 import numpy as np
 import faiss
 from typing import List, Dict, Any, Tuple, Optional
@@ -762,20 +763,21 @@ class PGVectorStore:
         result = self.add_documents_parallel(documents)
         return result['success']
 
-    def search_with_agent(self, query: str, history: List[Dict[str, str]] = None, user_id: Optional[int] = None) -> Optional[str]:
-        """Search using the intelligent agent with conversation history."""
+    def search_with_agent(self, query: str, history: List[Dict[str, str]] = None, user_id: Optional[int] = None) -> Tuple[Optional[str], List[str]]:
+        """Search using the intelligent agent with conversation history. Returns (result, filenames)."""
         try:
             from app.agent import run_agent
             logger.info(f"Attempting agent search for: '{query}'")
             print('query =========================================== ',query)
             print('history =========================================== ',history)
-            result = run_agent(query, history=history or [], max_iterations=5, user_id=user_id)
+            result, filenames = run_agent(query, history=history or [], max_iterations=5, user_id=user_id, vector_store=self)
             print('vector result =========================================== ',result)
+            print('agent filenames =========================================== ',filenames)
             
             # Check if result exists and is valid
             if not result:
                 logger.info("Agent returned empty result")
-                return None
+                return None, []
             
             result_lower = result.lower()
             
@@ -793,15 +795,165 @@ class PGVectorStore:
             
             if any(phrase in result_lower for phrase in rejection_phrases):
                 logger.info("Agent search returned insufficient results - will fallback to vector search")
-                return None
+                return None, []
             
             # Accept the result - it's valid
             logger.info(f"Agent found relevant information (length: {len(result)})")
-            return result
+            return result, filenames
             
         except Exception as e:
             logger.error(f"Agent search failed: {e}")
-            return None
+            return None, []
+
+    def search_by_filenames(self, filenames: List[str], query: str, top_k: int = 20) -> List[Dict[str, Any]]:
+        """
+        Search for documents matching specific filenames by querying database directly.
+        This ensures we get sources from the actual documents the agent queried.
+        """
+        try:
+            logger.info(f"🔍 Searching by filenames: {filenames}, query: '{query}', top_k={top_k}")
+            
+            if not filenames:
+                logger.warning("No filenames provided, falling back to regular search")
+                return self.search(query, top_k)
+            
+            # Query database directly for documents matching filenames
+            results = []
+            
+            with self.SessionLocal() as session:
+                # Build SQL query to find chunks from matching filenames
+                # Use ILIKE for case-insensitive matching and handle partial matches
+                filename_conditions = []
+                query_params = {}
+                
+                for i, filename in enumerate(filenames):
+                    # Extract just the filename without path for better matching
+                    base_filename = Path(filename).name if filename else filename
+                    param_name = f"filename_{i}"
+                    # Match both full filename and base filename
+                    filename_conditions.append(f"(e.cmetadata->>'filename' ILIKE :{param_name} OR e.cmetadata->>'filename' ILIKE :{param_name}_base)")
+                    query_params[param_name] = f"%{filename}%"
+                    query_params[f"{param_name}_base"] = f"%{base_filename}%"
+                
+                where_clause = " OR ".join(filename_conditions)
+                query_params['limit'] = top_k * 2  # Get more to filter by semantic similarity
+                
+                logger.debug(f"SQL WHERE clause: {where_clause}")
+                logger.debug(f"Query params: {list(query_params.keys())}")
+                
+                # Query to get matching chunks
+                sql_query = text(f"""
+                    SELECT 
+                        e.id,
+                        e.document,
+                        e.cmetadata,
+                        e.embedding
+                    FROM langchain_pg_embedding e
+                    WHERE {where_clause}
+                    ORDER BY (e.cmetadata->>'created_at')::bigint DESC NULLS LAST
+                    LIMIT :limit
+                """)
+                
+                # Execute query
+                rows = session.execute(sql_query, query_params).fetchall()
+                logger.info(f"📊 Found {len(rows)} chunks matching filenames in database")
+                
+                # Log sample filenames found for debugging
+                if rows:
+                    sample_metadata = rows[0][2]
+                    if isinstance(sample_metadata, str):
+                        try:
+                            sample_metadata = json.loads(sample_metadata)
+                        except:
+                            pass
+                    logger.debug(f"Sample filename from DB: {sample_metadata.get('filename', 'N/A') if isinstance(sample_metadata, dict) else 'N/A'}")
+                
+                if not rows:
+                    logger.warning("No chunks found matching filenames, falling back to regular search")
+                    return self.search(query, top_k)
+                
+                # Compute query embedding for similarity scoring
+                try:
+                    query_embedding = self.embedding_model.encode(query, normalize_embeddings=False)
+                    compute_similarity = True
+                except Exception as e:
+                    logger.warning(f"Could not compute query embedding: {e}, using default scores")
+                    compute_similarity = False
+                
+                for row in rows:
+                    try:
+                        doc_id = row[0]
+                        doc_content = row[1] if row[1] else ""
+                        cmetadata = row[2] if row[2] else {}
+                        doc_embedding = row[3]
+                        
+                        # Parse metadata if it's a string
+                        if isinstance(cmetadata, str):
+                            try:
+                                cmetadata = json.loads(cmetadata)
+                            except:
+                                cmetadata = {}
+                        
+                        doc_filename = cmetadata.get('filename', '')
+                        
+                        # Verify filename matches (double-check)
+                        matches = False
+                        for target_filename in filenames:
+                            if target_filename.lower() in doc_filename.lower() or doc_filename.lower() in target_filename.lower():
+                                matches = True
+                                break
+                        
+                        if not matches:
+                            continue
+                        
+                        # Compute similarity score using embeddings if available
+                        if compute_similarity and doc_embedding is not None:
+                            try:
+                                # Convert embedding to numpy array if needed
+                                if hasattr(doc_embedding, '__array__'):
+                                    doc_emb = doc_embedding.__array__()
+                                else:
+                                    doc_emb = np.array(doc_embedding)
+                                
+                                # Calculate cosine similarity
+                                similarity = np.dot(query_embedding, doc_emb) / (np.linalg.norm(query_embedding) * np.linalg.norm(doc_emb))
+                                score = float(similarity)
+                            except Exception as e:
+                                logger.debug(f"Could not compute similarity for chunk {doc_id}: {e}")
+                                score = 0.8  # High default score for matching filename
+                        else:
+                            score = 0.8  # High default score for matching filename
+                        
+                        results.append({
+                            'chunk_id': doc_id,
+                            'document_id': doc_id,
+                            'filename': doc_filename,
+                            'text': doc_content,
+                            'score': max(0.0, min(1.0, score)),  # Clamp between 0 and 1
+                            'source': cmetadata.get('source', 'pdf'),
+                            'metadata': {
+                                'chunk_index': cmetadata.get('chunk_index', 0),
+                                'document_metadata': {k: v for k, v in cmetadata.items() 
+                                                    if k not in ['filename', 'chunk_index', 'source', 'created_at']},
+                                'created_at': cmetadata.get('created_at', int(time.time())),
+                            }
+                        })
+                    except Exception as e:
+                        logger.warning(f"Error processing row: {e}", exc_info=True)
+                        continue
+                
+                # Sort by score descending and limit
+                if results:
+                    results.sort(key=lambda x: x['score'], reverse=True)
+                    results = results[:top_k]
+                
+                logger.info(f"✓ Found {len(results)} results matching filenames")
+                return results
+                
+        except Exception as e:
+            logger.error(f"❌ Error in filename-based search: {e}", exc_info=True)
+            # Fallback to regular search
+            return self.search(query, top_k)
 
     def search(self, query: str, top_k: int = 20) -> List[Dict[str, Any]]:
         """
