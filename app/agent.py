@@ -441,35 +441,6 @@ model_with_tools = model.bind_tools(tools)
 def run_agent(user_input: str, history: List[Dict[str, str]] = None, max_iterations: int = 5, user_id: Optional[int] = None, vector_store = None) -> Tuple[str, List[str]]:
     """Run the agent with conversation history context. Returns (response, filenames)."""
     
-    # Detect small talk/symptom reporting at the start of conversation
-    small_talk_patterns = [
-        r"i'?m?\s+(not\s+)?(feeling\s+)?(well|sick|unwell|ill|bad|terrible)",
-        r"i\s+have\s+a?\s*(headache|fever|pain|cold|cough|problem)",
-        r"i'?m?\s+(sick|ill|unwell)",
-        r"^(hello|hi|hey|good\s+(morning|afternoon|evening))$",
-        r"not\s+feeling\s+good",
-        r"feeling\s+(sick|unwell|ill|bad)"
-    ]
-    
-    is_small_talk = any(re.search(pattern, user_input.lower().strip()) for pattern in small_talk_patterns)
-    
-    # If it's small talk and no history (first message), show symptom options
-    if is_small_talk and (not history or len(history) == 0):
-        return """I'm here to help! Please select the symptoms you're experiencing:
-
-1. Headache
-2. Nausea
-3. Fever
-4. Fatigue
-5. Dizziness
-6. Cough or cold
-7. Body aches
-8. Digestive issues
-9. Skin problems
-10. Other (please describe)
-
-You can respond with multiple numbers, like: "1 and 3" or "2, 5, 7" """, []
-    
     history_context = ""
     if history:
         history_context = "\n".join([f"{h['role'].upper()}: {h['message']}" for h in history[-3:]])
@@ -497,43 +468,19 @@ You can respond with multiple numbers, like: "1 and 3" or "2, 5, 7" """, []
     # Track filenames from tool results
     agent_filenames = []
     
-    system_content = """You are a homeopathic medical assistant. You help patients by gathering symptoms and providing consultation.
-
-    CONVERSATION FLOW:
-    1. When the user provides symptom numbers (like "1 and 3"), acknowledge their symptoms specifically
-    2. Ask relevant follow-up questions about those specific symptoms
-    3. After collecting enough information, provide appropriate consultation or search the database
-    4. Be conversational and empathetic
-
-    UNDERSTANDING USER RESPONSES:
-    - "1 and 2" means they have headache and nausea
-    - "1, 3, 5" means they have headache, fever, and dizziness
-    - "none" means they don't have any of these symptoms
-    - Parse these naturally and continue the conversation
-
-    SYMPTOM LIST (for reference):
-    1. Headache
-    2. Nausea
-    3. Fever
-    4. Fatigue
-    5. Dizziness
-    6. Cough or cold
-    7. Body aches
-    8. Digestive issues
-    9. Skin problems
-    10. Other
+    system_content = """You are a helpful medical records assistant with access to a patient database.
 
     **CRITICAL REQUIREMENT:**
     After you receive tool results from query_knowledge_base, you MUST ALWAYS write a natural language summary of the data.
     NEVER return empty content. Even if the data is minimal, you must describe what you found.
 
     STRICT RULES:
-    1. When appropriate, use the query_knowledge_base tool to search for patient information
+    1. ALWAYS use the query_knowledge_base tool first to search for information
     2. After receiving tool results, you MUST write at least 2-3 sentences describing the data
     3. If the tool returns patient records, extract key details (name, age, condition, treatment)
     4. Format your response naturally, as if explaining to a colleague
     5. If tool returns "NO_RESULTS_FOUND", state clearly: "I don't have information about that patient in the database"
-    6. Don't say "Good morning" repeatedly - be natural and conversational"""
+    6. Please don't say Good morning each time"""
     
     # Add nickname as AI identity if available
     if nickname:
@@ -546,8 +493,8 @@ You can respond with multiple numbers, like: "1 and 3" or "2, 5, 7" """, []
     system_content += """
 
     REQUIRED OUTPUT FORMAT:
-    ✅ Good: "I see you're experiencing headache and nausea. How long have you had these symptoms?"
     ✅ Good: "Patient H002 is a 41-year-old male who visited on August 12, 2024 with multiple filiform warts..."
+    ✅ Good: "The patient presented with warts for 8 months causing cosmetic discomfort..."
     ❌ Bad: Empty response
     ❌ Bad: Just metadata without description
 
