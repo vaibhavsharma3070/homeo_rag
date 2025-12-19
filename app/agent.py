@@ -37,7 +37,6 @@ os.environ["GOOGLE_API_KEY"] = settings.gemini_api_key
 model = ChatGoogleGenerativeAI(
     model=settings.gemini_model,
     temperature=0.2,
-    max_output_tokens=2048
 )
 
 # ----------------------
@@ -472,37 +471,62 @@ def run_agent(user_input: str, history: List[Dict[str, str]] = None, max_iterati
     # Track filenames from tool results
     agent_filenames = []
     
-    system_content = """You are a helpful medical records assistant with access to a patient database."""
+    # Count questions asked in history
+    question_count = 0
+    if history:
+        for h in history:
+            if h['role'] == 'ai' and '?' in h['message']:
+                question_count += 1
     
-    # Add custom instructions from admin personalization (applies to all users)
+    system_content = ""
+    
+    # PUT CUSTOM INSTRUCTIONS FIRST - MOST IMPORTANT
     if custom_instructions:
-        system_content += f"\n\n## Custom Instructions (FOLLOW THESE STRICTLY):\n{custom_instructions}"
+        system_content += f"""## ⚠️ MANDATORY INSTRUCTIONS - MUST FOLLOW STRICTLY ⚠️ ##
+
+{custom_instructions}
+
+## CRITICAL ENFORCEMENT RULES:
+- CONVERSATION HISTORY SHOWS {question_count} QUESTIONS ALREADY ASKED
+- IF {question_count} >= 5: YOU MUST PROVIDE A REMEDY NOW, DO NOT ASK MORE QUESTIONS
+- IF {question_count} >= 8: YOU ABSOLUTELY MUST STOP ASKING AND GIVE THE REMEDY IMMEDIATELY
+- The user has provided: location, sensation, intensity, and modalities information
+- YOU HAVE ENOUGH INFORMATION - PROVIDE THE REMEDY NOW
+- Maximum 1 question per response, then provide remedy on next turn
+- DO NOT keep asking endless questions about general symptoms
+
+"""
     
     # Add nickname as AI identity if available
     if nickname:
-        system_content += f"\n\n## Your Identity:\nYou are {nickname}. This is your name. Always refer to yourself as {nickname}."
+        system_content += f"""## Your Identity:
+You are {nickname}. This is your name. Always refer to yourself as {nickname}.
+
+"""
+    
+    if not custom_instructions:
+        system_content += """## Your Role:
+You are a helpful medical records assistant with access to a patient database.
+"""
     
     # Add dynamic username information if available
     if username:
-        system_content += f"\n\n## User Information:\nIf the user asks about their name or who they are, their username is: {username}"
+        system_content += f"""
+## User Information:
+If the user asks about their name or who they are, their username is: {username}
+"""
     
     system_content += """
+## Tool Usage Rules:
+1. Use query_knowledge_base tool to search for patient information when needed
+2. After receiving tool results, summarize the data clearly in 2-3 sentences
+3. If tool returns "NO_RESULTS_FOUND", state: "I don't have information about that in the database"
+4. Format responses naturally and conversationally
 
-    **CRITICAL REQUIREMENT:**
-    After you receive tool results from query_knowledge_base, you MUST ALWAYS write a natural language summary of the data.
-    NEVER return empty content. Even if the data is minimal, you must describe what you found.
-
-    STRICT RULES:
-    1. ALWAYS use the query_knowledge_base tool first to search for information
-    2. After receiving tool results, you MUST write at least 2-3 sentences describing the data
-    3. If the tool returns patient records, extract key details (name, age, condition, treatment)
-    4. Format your response naturally, as if explaining to a colleague
-    5. If tool returns "NO_RESULTS_FOUND", state clearly: "I don't have information about that patient in the database"
-
-    **YOU MUST PROVIDE TEXT OUTPUT. EMPTY RESPONSES ARE NOT ACCEPTABLE.**"""
+**YOU MUST PROVIDE TEXT OUTPUT. EMPTY RESPONSES ARE NOT ACCEPTABLE.**"""
 
     if history_context:
-        system_content += f"\n\nRecent conversation:\n{history_context}\n\nUse this context to understand pronouns and references."
+        system_content += f"\n\n## Recent Conversation:\n{history_context}\n\nUse this context to understand pronouns and references."
     
     messages = [
         SystemMessage(content=system_content),
@@ -575,7 +599,18 @@ def run_agent(user_input: str, history: List[Dict[str, str]] = None, max_iterati
             print('response.content ===========================================', response.content)
             print(f'📝 Response content: "{response.content[:200]}..."')
             
-            if not response.content or response.content.strip() == "":
+            # Extract text from response content if it's a list/dict structure
+            answer_text = response.content
+            if isinstance(answer_text, list) and len(answer_text) > 0:
+                # Extract text from list of dicts
+                if isinstance(answer_text[0], dict) and 'text' in answer_text[0]:
+                    answer_text = answer_text[0]['text']
+                else:
+                    answer_text = str(answer_text)
+            elif not isinstance(answer_text, str):
+                answer_text = str(answer_text)
+            
+            if not answer_text or answer_text.strip() == "":
                 print("⚠️ WARNING: LLM returned empty content - forcing retry with explicit instructions")
                 
                 # Find the most recent tool result
@@ -631,8 +666,8 @@ Write the summary now:""")
                 
                 return "I found patient records but couldn't generate a proper summary. Please try again.", list(set(agent_filenames))
             
-            print(f"✅ Returning final answer ({len(response.content)} chars)")
-            return response.content, list(set(agent_filenames))
+            print(f"✅ Returning final answer ({len(answer_text)} chars)")
+            return answer_text, list(set(agent_filenames))
 
 # ----------------------
 # Main Execution

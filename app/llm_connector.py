@@ -89,7 +89,7 @@ class GeminiConnector(LLMConnector):
                 temperature=0.2,
                 top_p=0.9,
                 top_k=40,
-                max_output_tokens=600,
+                max_output_tokens=2048,
             )
 
             # Generate response
