@@ -832,30 +832,43 @@ async def get_ingest_progress(job_id: str):
         }
 
 @app.post("/api/query", response_model=QueryResponse, tags=["RAG"])
-async def process_query(request: QueryRequest,current_user: Optional[Dict[str, Any]] = Depends(get_current_user)):
+async def process_query(request: QueryRequest, current_user: Optional[Dict[str, Any]] = Depends(get_current_user)):
     """Process a query through the RAG pipeline."""
     try:
-        # Extract user_id before using it
         user_id = current_user.get("id") if current_user else None
         
-        # Process, passing session_id to include conversational history in context
-        result = rag_pipeline.process_query(request.query, request.top_k, session_id=request.session_id, user_id=user_id)
+        result = rag_pipeline.process_query(
+            request.query, 
+            request.top_k, 
+            session_id=request.session_id, 
+            user_id=user_id
+        )
         
-        # Persist chat messages if database available
+        # Get the answer
+        answer = result.get('answer', '')
+        
+        # Persist chat messages
         try:
             if hasattr(rag_pipeline, 'vector_store') and hasattr(rag_pipeline.vector_store, 'save_chat_message'):
                 if request.session_id:
                     rag_pipeline.vector_store.save_chat_message(request.session_id, 'user', request.query, user_id=user_id)
-                    answer_text = str(result.get('answer', ''))
-                    rag_pipeline.vector_store.save_chat_message(request.session_id, 'ai', answer_text, user_id=user_id)
+                    rag_pipeline.vector_store.save_chat_message(request.session_id, 'ai', answer, user_id=user_id)
         except Exception as persist_err:
             logger.warning(f"Failed to save chat history: {persist_err}")
         
         return JSONResponse(content=result)
         
     except Exception as e:
-        logger.error(f"Error processing query: {e}")
-        raise HTTPException(status_code=500, detail=f"Error processing query: {str(e)}")
+        logger.error(f"Error processing query: {e}", exc_info=True)
+        return JSONResponse(
+            status_code=500,
+            content={
+                "error": "Query processing failed",
+                "detail": str(e),
+                "answer": "I apologize, but I encountered an error processing your request. Please try again.",
+                "sources": []
+            }
+        )
 
 @app.post("/api/chat/new", response_model=ChatSessionResponse, tags=["RAG"])
 async def create_chat_session():

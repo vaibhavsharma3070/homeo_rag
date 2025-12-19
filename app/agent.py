@@ -1,6 +1,4 @@
-# ai_sql_query_tool.py
-# AI-driven SQL query builder for diverse data types in langchain_pg_embedding table
-# The AI analyzes the question, understands the data structure, and builds optimized queries
+# agent.py
 
 import os
 import sys
@@ -39,6 +37,7 @@ os.environ["GOOGLE_API_KEY"] = settings.gemini_api_key
 model = ChatGoogleGenerativeAI(
     model=settings.gemini_model,
     temperature=0.2,
+    max_output_tokens=2048
 )
 
 # ----------------------
@@ -448,6 +447,8 @@ def run_agent(user_input: str, history: List[Dict[str, str]] = None, max_iterati
     # Get username and nickname from personalization if available
     username = None
     nickname = None
+    custom_instructions = None
+    
     if user_id and vector_store:
         try:
             if hasattr(vector_store, 'SessionLocal') and hasattr(vector_store, 'UserORM'):
@@ -460,15 +461,32 @@ def run_agent(user_input: str, history: List[Dict[str, str]] = None, max_iterati
                     admin_user = db.query(vector_store.UserORM).filter_by(role='admin').order_by(vector_store.UserORM.id.asc()).first()
                     if admin_user and hasattr(vector_store, 'get_user_personalization'):
                         personalization = vector_store.get_user_personalization(admin_user.id)
-                        if personalization and personalization.get('nickname'):
-                            nickname = personalization['nickname'].strip()
+                        if personalization:
+                            if personalization.get('nickname'):
+                                nickname = personalization['nickname'].strip()
+                            if personalization.get('custom_instructions'):
+                                custom_instructions = personalization['custom_instructions'].strip()
         except Exception as e:
             print(f"⚠️ Could not retrieve user info for user_id {user_id}: {e}")
     
     # Track filenames from tool results
     agent_filenames = []
     
-    system_content = """You are a helpful medical records assistant with access to a patient database.
+    system_content = """You are a helpful medical records assistant with access to a patient database."""
+    
+    # Add custom instructions from admin personalization (applies to all users)
+    if custom_instructions:
+        system_content += f"\n\n## Custom Instructions (FOLLOW THESE STRICTLY):\n{custom_instructions}"
+    
+    # Add nickname as AI identity if available
+    if nickname:
+        system_content += f"\n\n## Your Identity:\nYou are {nickname}. This is your name. Always refer to yourself as {nickname}."
+    
+    # Add dynamic username information if available
+    if username:
+        system_content += f"\n\n## User Information:\nIf the user asks about their name or who they are, their username is: {username}"
+    
+    system_content += """
 
     **CRITICAL REQUIREMENT:**
     After you receive tool results from query_knowledge_base, you MUST ALWAYS write a natural language summary of the data.
@@ -480,23 +498,6 @@ def run_agent(user_input: str, history: List[Dict[str, str]] = None, max_iterati
     3. If the tool returns patient records, extract key details (name, age, condition, treatment)
     4. Format your response naturally, as if explaining to a colleague
     5. If tool returns "NO_RESULTS_FOUND", state clearly: "I don't have information about that patient in the database"
-    6. Please don't say Good morning each time"""
-    
-    # Add nickname as AI identity if available
-    if nickname:
-        system_content += f"\n    7. Your name is {nickname}. This is your identity. Always refer to yourself as {nickname}. When asked 'who are you?' or 'what is your name?', respond that you are {nickname}."
-    
-    # Add dynamic username information if available
-    if username:
-        system_content += f"\n    8. If the user asks about their name or who they are, their username is: {username}"
-
-    system_content += """
-
-    REQUIRED OUTPUT FORMAT:
-    ✅ Good: "Patient H002 is a 41-year-old male who visited on August 12, 2024 with multiple filiform warts..."
-    ✅ Good: "The patient presented with warts for 8 months causing cosmetic discomfort..."
-    ❌ Bad: Empty response
-    ❌ Bad: Just metadata without description
 
     **YOU MUST PROVIDE TEXT OUTPUT. EMPTY RESPONSES ARE NOT ACCEPTABLE.**"""
 
@@ -588,13 +589,13 @@ def run_agent(user_input: str, history: List[Dict[str, str]] = None, max_iterati
                     # Force a response with very explicit prompt
                     retry_message = HumanMessage(content=f"""You returned an empty response. This is not acceptable.
 
-        Here is the patient data you received from the tool:
-        {tool_result_content[:500]}
+Here is the patient data you received from the tool:
+{tool_result_content[:500]}
 
-        YOU MUST write a 2-3 sentence summary of this patient information RIGHT NOW.
-        Include: Patient ID, age, main complaint, and any treatment mentioned.
+YOU MUST write a 2-3 sentence summary of this patient information RIGHT NOW.
+Include: Patient ID, age, main complaint, and any treatment mentioned.
 
-        Write the summary now:""")
+Write the summary now:""")
                     
                     messages.append(retry_message)
                     
