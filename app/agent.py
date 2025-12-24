@@ -40,13 +40,21 @@ model = ChatGoogleGenerativeAI(
 )
 
 # ----------------------
+# Conversation Phase Tracking
+# ----------------------
+class ConversationPhase:
+    """Track conversation phases to control question flow."""
+    GREETING = "greeting"
+    INTAKE = "intake"           # Initial symptom gathering (3-5 key facts)
+    CLARIFICATION = "clarification"  # Optional follow-up (1-2 questions max)
+    REMEDY = "remedy"           # Provide recommendation
+    FOLLOWUP = "followup"       # Post-remedy discussion
+
+# ----------------------
 # Data Structure Analysis Helper
 # ----------------------
 def _analyze_data_structure(cursor) -> Dict[str, Any]:
-    """
-    Analyze the actual data in the table to understand different data types and patterns.
-    Returns a summary of data patterns for the AI to understand.
-    """
+    """Analyze the actual data in the table to understand different data types and patterns."""
     analysis = {
         "total_records": 0,
         "data_types_found": [],
@@ -55,11 +63,9 @@ def _analyze_data_structure(cursor) -> Dict[str, Any]:
     }
     
     try:
-        # Get total count
         cursor.execute(f"SELECT COUNT(*) as count FROM {TABLE_NAME}")
         analysis["total_records"] = cursor.fetchone()['count']
         
-        # Sample diverse records to understand data patterns
         cursor.execute(f"""
             SELECT document, cmetadata, collection_id
             FROM {TABLE_NAME}
@@ -72,7 +78,6 @@ def _analyze_data_structure(cursor) -> Dict[str, Any]:
         for sample in samples:
             metadata = sample.get('cmetadata', {})
             
-            # Parse metadata if it's a string
             if isinstance(metadata, str):
                 try:
                     metadata = json.loads(metadata)
@@ -80,16 +85,13 @@ def _analyze_data_structure(cursor) -> Dict[str, Any]:
                     pass
             
             if isinstance(metadata, dict):
-                # Identify data type
                 source_type = metadata.get('source_type', metadata.get('source', 'unknown'))
                 if source_type not in analysis["data_types_found"]:
                     analysis["data_types_found"].append(source_type)
                 
-                # Collect common fields
                 for key in metadata.keys():
                     analysis["common_fields"].add(key)
                 
-                # Store sample structure
                 if len(analysis["sample_metadata_structures"]) < 3:
                     analysis["sample_metadata_structures"].append({
                         "source_type": source_type,
@@ -211,12 +213,6 @@ JSON:"""
         if not sql_upper.startswith("SELECT"):
             raise ValueError("Only SELECT allowed")
         
-        # Safety checks
-        # forbidden = ['DROP', 'DELETE', 'UPDATE', 'INSERT', 'TRUNCATE', 'ALTER', 'CREATE']
-        # for keyword in forbidden:
-        #     if keyword in sql_upper:
-        #         raise ValueError(f"Forbidden keyword detected: {keyword}")
-        
         if 'LIMIT' not in sql_upper:
             sql = sql.strip().rstrip(';') + ' LIMIT 100'
         
@@ -231,23 +227,18 @@ JSON:"""
     except Exception as e:
         print(f"AI query building failed: {e}")
         return _simple_fallback_query(resolved_question)
-        
+
 # ----------------------
 # Simple Fallback Query Builder
 # ----------------------
 def _simple_fallback_query(user_question: str) -> Tuple[str, List[Any], Dict[str, Any]]:
-    """
-    Fallback query builder when AI fails.
-    Creates a basic search across document and metadata.
-    """
-    # Extract keywords
+    """Fallback query builder when AI fails."""
     words = re.findall(r'\w+', user_question.lower())
     stop_words = {'what', 'where', 'when', 'who', 'how', 'is', 'are', 'the', 'a', 'an', 
                    'can', 'find', 'show', 'tell', 'give', 'me', 'please', 'about'}
     keywords = [w for w in words if w not in stop_words and len(w) > 2]
     
     if not keywords:
-        # Return recent records
         sql = f"""
             SELECT id, document, cmetadata, collection_id 
             FROM {TABLE_NAME}
@@ -256,11 +247,10 @@ def _simple_fallback_query(user_question: str) -> Tuple[str, List[Any], Dict[str
         """
         params = []
     else:
-        # Search in both document and metadata
         search_conditions = []
         params = []
         
-        for keyword in keywords[:3]:  # Limit to 3 keywords
+        for keyword in keywords[:3]:
             pattern = f"%{keyword}%"
             search_conditions.append(
                 "(document ILIKE %s OR cmetadata::text ILIKE %s)"
@@ -300,14 +290,13 @@ def _format_results(rows: List[Dict], sql: str, params: List, debug: Dict, user_
     if patient_id_matches:
         search_terms.extend([pid.upper() for pid in patient_id_matches])
     
-    # Extract names (John Doe, etc.)
+    # Extract names
     question_words = ['what', 'who', 'where', 'when', 'how', 'tell', 'about', 'give', 'show', 'find', 'details', 'information', 'is', 'are', 'the', 'a', 'an', 'me', 'for', 'of']
     words = user_question.lower().split()
     name_parts = [w.strip('?,.:;!').title() for w in words if w.lower() not in question_words and len(w) > 2 and not re.match(r'^h\d+$', w.lower())]
     if name_parts:
         search_terms.extend(name_parts)
     
-    # Collect all matching records and track filenames
     matching_records = []
     filenames_set = set()
     
@@ -334,7 +323,6 @@ def _format_results(rows: List[Dict], sql: str, params: List, debug: Dict, user_
         else:
             records = [doc]
         
-        # Check each record
         for record in records:
             record = record.strip()
             if not record:
@@ -362,14 +350,11 @@ def _format_results(rows: List[Dict], sql: str, params: List, debug: Dict, user_
                 if not matches:
                     continue
             
-            # Add the raw record
             matching_records.append(record)
     
-    # Return RAW data for LLM to process and filenames
     if not matching_records:
         return "NO_RESULTS_FOUND", []
     
-    # Return records separated by delimiter and list of unique filenames
     return "\n\n=== RECORD ===\n\n".join(matching_records), list(filenames_set)
 
 # ----------------------
@@ -388,36 +373,25 @@ def query_knowledge_base(user_question: str) -> str:
         Formatted results with relevant data and metadata
     """
     try:
-        # Connect to database
         conn = psycopg2.connect(**DB_PARAMS, cursor_factory=RealDictCursor)
         cursor = conn.cursor()
         
-        # Analyze data structure
         data_analysis = _analyze_data_structure(cursor)
-        
-        # Build SQL query using AI
         sql, params, debug = _build_sql_with_ai(user_question, data_analysis)
         
-        # Execute query
         try:
             cursor.execute(sql, params)
             rows = cursor.fetchall()
         except Exception as exec_error:
             print(f"Query execution failed: {exec_error}")
-            # Try fallback query
             sql, params, debug = _simple_fallback_query(user_question)
             debug['execution_error'] = str(exec_error)
             cursor.execute(sql, params)
             rows = cursor.fetchall()
         
-        # Format and return results (with filenames)
         result, filenames = _format_results(rows, sql, params, debug, user_question)
         
-        # Store filenames in a global or return them somehow
-        # For now, we'll append filenames to the result in a special format
-        # that can be extracted later, or we'll modify the return to include metadata
         if filenames and result != "NO_RESULTS_FOUND":
-            # Store filenames in debug info that can be accessed
             debug['filenames'] = filenames
         
         cursor.close()
@@ -431,6 +405,96 @@ def query_knowledge_base(user_question: str) -> str:
         return f"❌ Error querying knowledge base: {str(e)}"
 
 # ----------------------
+# Conversation Phase Detection
+# ----------------------
+def _detect_conversation_phase(history: List[Dict[str, str]], user_input: str) -> str:
+    """Detect what phase of conversation we're in."""
+    if not history:
+        # Check if it's a greeting
+        greeting_patterns = ['hi', 'hello', 'hey', 'good morning', 'good afternoon', 'good evening']
+        if any(pattern in user_input.lower() for pattern in greeting_patterns):
+            return ConversationPhase.GREETING
+        return ConversationPhase.INTAKE
+    
+    # Count actual symptom-gathering questions (questions about symptoms, not rhetorical)
+    symptom_question_count = 0
+    for msg in history:
+        if msg['role'] == 'ai':
+            text = msg['message'].lower()
+            # Only count questions that are actually gathering symptom information
+            symptom_indicators = [
+                'where', 'when', 'what time', 'how long', 'describe',
+                'sensation', 'feeling', 'experience', 'intensity',
+                'better', 'worse', 'modalities', 'aggravation', 'amelioration'
+            ]
+            if '?' in text and any(indicator in text for indicator in symptom_indicators):
+                symptom_question_count += 1
+    
+    # Check if we have enough information gathered
+    has_location = any('where' in msg['message'].lower() for msg in history if msg['role'] == 'ai')
+    has_sensation = any('sensation' in msg['message'].lower() or 'feel' in msg['message'].lower() for msg in history if msg['role'] == 'ai')
+    has_modality = any('better' in msg['message'].lower() or 'worse' in msg['message'].lower() for msg in history if msg['role'] == 'ai')
+    
+    gathered_facts = sum([has_location, has_sensation, has_modality])
+    
+    # Phase determination
+    if symptom_question_count >= 5 or gathered_facts >= 3:
+        return ConversationPhase.REMEDY
+    elif symptom_question_count >= 3:
+        return ConversationPhase.CLARIFICATION
+    else:
+        return ConversationPhase.INTAKE
+
+# ----------------------
+# Generate Symptom Options
+# ----------------------
+def _generate_symptom_options(context: str = "") -> str:
+    """Generate numbered symptom options for user convenience."""
+    common_symptoms = [
+        "Fever",
+        "Cold/Cough",
+        "Headache",
+        "Stomach pain",
+        "Body ache",
+        "Fatigue",
+        "Anxiety",
+        "Skin issues",
+        "Sleep problems",
+        "Other (describe)"
+    ]
+    
+    options_text = "\n\n**Common symptoms (you can type the number or describe in your own words):**\n"
+    for i, symptom in enumerate(common_symptoms, 1):
+        options_text += f"{i}. {symptom}\n"
+    
+    return options_text
+
+# ----------------------
+# Parse User Symptom Choice
+# ----------------------
+def _parse_symptom_choice(user_input: str) -> str:
+    """Parse user input if they selected a numbered option."""
+    symptom_map = {
+        "1": "fever",
+        "2": "cold or cough",
+        "3": "headache",
+        "4": "stomach pain",
+        "5": "body ache",
+        "6": "fatigue",
+        "7": "anxiety",
+        "8": "skin issues",
+        "9": "sleep problems",
+        "10": "other symptoms"
+    }
+    
+    # Check if user just typed a number
+    stripped = user_input.strip()
+    if stripped in symptom_map:
+        return symptom_map[stripped]
+    
+    return user_input  # Return original if not a number
+
+# ----------------------
 # Agent Setup
 # ----------------------
 tools = [query_knowledge_base]
@@ -439,11 +503,22 @@ model_with_tools = model.bind_tools(tools)
 def run_agent(user_input: str, history: List[Dict[str, str]] = None, max_iterations: int = 5, user_id: Optional[int] = None, vector_store = None) -> Tuple[str, List[str]]:
     """Run the agent with conversation history context. Returns (response, filenames)."""
     
+    history = history or []
     history_context = ""
     if history:
-        history_context = "\n".join([f"{h['role'].upper()}: {h['message']}" for h in history[-3:]])
+        history_context = "\n".join([f"{h['role'].upper()}: {h['message']}" for h in history[-5:]])
     
-    # Get username and nickname from personalization if available
+    # Parse symptom choice if user selected a number
+    parsed_input = _parse_symptom_choice(user_input)
+    if parsed_input != user_input:
+        print(f"📋 User selected option: {user_input} -> {parsed_input}")
+        user_input = parsed_input
+    
+    # Detect conversation phase
+    current_phase = _detect_conversation_phase(history, user_input)
+    print(f"🔄 Conversation phase: {current_phase}")
+    
+    # Get personalization
     username = None
     nickname = None
     custom_instructions = None
@@ -456,7 +531,6 @@ def run_agent(user_input: str, history: List[Dict[str, str]] = None, max_iterati
                     if user:
                         username = user.username
                     
-                    # Get admin's personalization (shared across all admins)
                     admin_user = db.query(vector_store.UserORM).filter_by(role='admin').order_by(vector_store.UserORM.id.asc()).first()
                     if admin_user and hasattr(vector_store, 'get_user_personalization'):
                         personalization = vector_store.get_user_personalization(admin_user.id)
@@ -471,68 +545,114 @@ def run_agent(user_input: str, history: List[Dict[str, str]] = None, max_iterati
     # Track filenames from tool results
     agent_filenames = []
     
-    # Count questions asked in history
-    question_count = 0
-    if history:
-        for h in history:
-            if h['role'] == 'ai' and '?' in h['message']:
-                question_count += 1
-    
+    # Build system prompt based on phase
     system_content = ""
     
-    # PUT CUSTOM INSTRUCTIONS FIRST - MOST IMPORTANT
-    if custom_instructions:
-        system_content += f"""## ⚠️ MANDATORY INSTRUCTIONS - MUST FOLLOW STRICTLY ⚠️ ##
-
-{custom_instructions}
-
-## CRITICAL ENFORCEMENT RULES:
-- CONVERSATION HISTORY SHOWS {question_count} QUESTIONS ALREADY ASKED
-- IF {question_count} >= 5: YOU MUST PROVIDE A REMEDY NOW, DO NOT ASK MORE QUESTIONS
-- IF {question_count} >= 8: YOU ABSOLUTELY MUST STOP ASKING AND GIVE THE REMEDY IMMEDIATELY
-- The user has provided: location, sensation, intensity, and modalities information
-- YOU HAVE ENOUGH INFORMATION - PROVIDE THE REMEDY NOW
-- Maximum 1 question per response, then provide remedy on next turn
-- DO NOT keep asking endless questions about general symptoms
-
-"""
-    
-    # Add nickname as AI identity if available
+    # Add identity first
     if nickname:
         system_content += f"""## Your Identity:
-You are {nickname}. This is your name. Always refer to yourself as {nickname}.
+You are {nickname}. Always introduce yourself as {nickname}.
 
 """
     
-    if not custom_instructions:
-        system_content += """## Your Role:
-You are a helpful medical records assistant with access to a patient database.
+    # Add custom instructions if available
+    if custom_instructions:
+        system_content += f"""## Custom Instructions:
+{custom_instructions}
+
 """
     
-    # Add dynamic username information if available
+    # Phase-specific instructions
+    if current_phase == ConversationPhase.GREETING:
+        system_content += """## Current Phase: GREETING
+Greet the user warmly and ask what brings them here today.
+Optionally, you can provide numbered symptom options to make it easier for them.
+"""
+        # Add symptom options for first interaction
+        system_content += _generate_symptom_options()
+    
+    elif current_phase == ConversationPhase.INTAKE:
+        system_content += """## Current Phase: INTAKE (Initial Information Gathering)
+Your goal: Gather 3-5 key facts about the user's condition.
+
+MUST GATHER:
+1. Primary symptom/complaint
+2. Location of discomfort
+3. Sensation quality (burning, aching, sharp, etc.)
+4. When it started / Duration
+5. What makes it better or worse
+
+RULES:
+- Ask ONE focused question at a time
+- Be conversational and empathetic
+- Maximum 5 questions in this phase
+- After gathering these facts, move to remedy phase
+"""
+
+    elif current_phase == ConversationPhase.CLARIFICATION:
+        system_content += """## Current Phase: CLARIFICATION
+You have basic information. Ask 1-2 clarifying questions if needed.
+
+RULES:
+- MAXIMUM 2 questions in this phase
+- Only ask if truly necessary for remedy selection
+- Then MUST provide remedy
+
+Example clarifying questions:
+- "Is the pain worse at night or during the day?"
+- "Does warmth help or make it worse?"
+"""
+
+    elif current_phase == ConversationPhase.REMEDY:
+        system_content += """## Current Phase: REMEDY RECOMMENDATION
+You have gathered enough information. NOW PROVIDE A REMEDY.
+
+REQUIREMENTS:
+- State the recommended homeopathic remedy
+- Explain why it matches their symptoms
+- Provide dosage instructions (e.g., "30C potency, 3 pellets under tongue, 3 times daily")
+- Mention when to expect improvement
+- DO NOT ASK MORE QUESTIONS (unless user asks follow-up)
+
+REMEDY FORMAT:
+"Based on your symptoms, I recommend [Remedy Name] [Potency].
+
+This remedy is suitable because [reason matching symptoms].
+
+Dosage: [specific instructions]
+
+You should notice improvement within [timeframe]."
+"""
+    
+    # Add username info
     if username:
         system_content += f"""
 ## User Information:
-If the user asks about their name or who they are, their username is: {username}
+User's username: {username}
 """
     
+    # Tool usage
     system_content += """
-## Tool Usage Rules:
-1. Use query_knowledge_base tool to search for patient information when needed
-2. After receiving tool results, summarize the data clearly in 2-3 sentences
-3. If tool returns "NO_RESULTS_FOUND", state: "I don't have information about that in the database"
-4. Format responses naturally and conversationally
+## Tool Usage:
+- Use query_knowledge_base to search patient records when asked about specific patients
+- After tool results, provide clear summary
+- If tool returns "NO_RESULTS_FOUND", inform user clearly
 
-**YOU MUST PROVIDE TEXT OUTPUT. EMPTY RESPONSES ARE NOT ACCEPTABLE.**"""
-
+## Response Requirements:
+- Be natural and conversational
+- Show empathy
+- Be concise but complete
+- ALWAYS provide text output (empty responses not acceptable)
+"""
+    
     if history_context:
-        system_content += f"\n\n## Recent Conversation:\n{history_context}\n\nUse this context to understand pronouns and references."
+        system_content += f"\n## Recent Conversation:\n{history_context}\n"
     
     messages = [
         SystemMessage(content=system_content),
         HumanMessage(content=user_input)
     ]
-
+    
     data_analysis = None
     
     for iteration in range(max_iterations):
@@ -546,7 +666,7 @@ If the user asks about their name or who they are, their username is: {username}
         print(f'📨 Response content length: {len(response.content) if response.content else 0}')
         
         messages.append(response)
-
+        
         if hasattr(response, 'tool_calls') and response.tool_calls:
             print(f"🔧 Model requested {len(response.tool_calls)} tool call(s)")
             
@@ -565,18 +685,14 @@ If the user asks about their name or who they are, their username is: {username}
                             data_analysis,
                             history=history
                         )
-                        print('sql ===========================================', sql)
-                        print('params ===========================================', params)
-
+                        
                         cursor.execute(sql, params)
                         rows = cursor.fetchall()
                         
                         tool_result, filenames = _format_results(rows, sql, params, debug, call['args'].get('user_question'))
                         if filenames:
                             agent_filenames.extend(filenames)
-                        print('tool_result ===========================================', tool_result[:500])
-                        print('filenames ===========================================', filenames)
-
+                        
                         cursor.close()
                         conn.close()
                     except Exception as e:
@@ -592,17 +708,13 @@ If the user asks about their name or who they are, their username is: {username}
                     print("🔄 Tool result added to conversation. Requesting final answer from LLM...\n")
             
             continue
-                    
+        
         else:
             # No tool calls - this is the final answer
             print('\n✅ Final answer received from model')
-            print('response.content ===========================================', response.content)
-            print(f'📝 Response content: "{response.content[:200]}..."')
             
-            # Extract text from response content if it's a list/dict structure
             answer_text = response.content
             if isinstance(answer_text, list) and len(answer_text) > 0:
-                # Extract text from list of dicts
                 if isinstance(answer_text[0], dict) and 'text' in answer_text[0]:
                     answer_text = answer_text[0]['text']
                 else:
@@ -611,51 +723,14 @@ If the user asks about their name or who they are, their username is: {username}
                 answer_text = str(answer_text)
             
             if not answer_text or answer_text.strip() == "":
-                print("⚠️ WARNING: LLM returned empty content - forcing retry with explicit instructions")
+                print("⚠️ WARNING: Empty response - using fallback")
                 
-                # Find the most recent tool result
-                tool_result_content = None
+                # Try to extract from tool results
                 for msg in reversed(messages):
                     if isinstance(msg, ToolMessage) and msg.content != "NO_RESULTS_FOUND":
-                        tool_result_content = msg.content
-                        break
-                
-                if tool_result_content:
-                    # Force a response with very explicit prompt
-                    retry_message = HumanMessage(content=f"""You returned an empty response. This is not acceptable.
-
-Here is the patient data you received from the tool:
-{tool_result_content[:500]}
-
-YOU MUST write a 2-3 sentence summary of this patient information RIGHT NOW.
-Include: Patient ID, age, main complaint, and any treatment mentioned.
-
-Write the summary now:""")
-                    
-                    messages.append(retry_message)
-                    
-                    try:
-                        print("🔄 Sending retry request with explicit instructions...")
-                        retry_response = model_with_tools.invoke(messages)
-                        
-                        print(f"📨 Retry response content: '{retry_response.content}'")
-                        
-                        if retry_response.content and retry_response.content.strip():
-                            print(f"✅ Retry successful! Got {len(retry_response.content)} chars")
-                            return retry_response.content.strip(), list(set(agent_filenames))
-                        else:
-                            print("❌ Retry also returned empty - using fallback")
-                    except Exception as retry_error:
-                        print(f"❌ Retry failed with error: {retry_error}")
-                
-                # Final fallback - extract from tool results
-                print("⚠️ Using manual fallback to extract patient info")
-                for msg in reversed(messages):
-                    if isinstance(msg, ToolMessage) and msg.content != "NO_RESULTS_FOUND":
-                        # Parse the tool result and create a basic summary
                         lines = msg.content.split('\n')
                         patient_info = []
-                        for line in lines[:15]:  # First 15 lines usually have key info
+                        for line in lines[:15]:
                             if any(key in line for key in ['Patient ID:', 'Age:', 'Gender:', 'Chief Complaints:', 'Date of Visit:']):
                                 patient_info.append(line.strip())
                         
@@ -664,10 +739,12 @@ Write the summary now:""")
                         else:
                             return "Based on the records: " + ' '.join(lines[:5]), list(set(agent_filenames))
                 
-                return "I found patient records but couldn't generate a proper summary. Please try again.", list(set(agent_filenames))
+                return "I found information but couldn't format it properly. Please try again.", list(set(agent_filenames))
             
             print(f"✅ Returning final answer ({len(answer_text)} chars)")
             return answer_text, list(set(agent_filenames))
+    
+    return "I apologize, but I couldn't complete the request. Please try again.", list(set(agent_filenames))
 
 # ----------------------
 # Main Execution

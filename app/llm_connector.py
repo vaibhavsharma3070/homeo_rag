@@ -53,18 +53,30 @@ class GeminiConnector(LLMConnector):
             if not self.model:
                 return False
 
-            # Test with a simple prompt
+            # Test with a simple math prompt (less likely to trigger safety filters)
             test_response = self.model.generate_content(
-                "Hello",
+                "What is 2+2?",
                 generation_config=genai.types.GenerationConfig(
                     max_output_tokens=10,
                     temperature=0.1,
                 )
             )
             
-            if test_response and test_response.text:
-                logger.info("Gemini service is available")
-                return True
+            # Check if we got ANY response (even if blocked by safety)
+            # If the API responds at all, it's "available"
+            if test_response:
+                # Check finish_reason: 1=STOP (success), 2=SAFETY, 3=RECITATION, etc.
+                # As long as we got a response object, API is working
+                if hasattr(test_response, 'candidates') and test_response.candidates:
+                    finish_reason = test_response.candidates[0].finish_reason
+                    if finish_reason in [1, 2, 3, 4]:  # Any valid finish reason means API works
+                        logger.info(f"Gemini service is available (finish_reason: {finish_reason})")
+                        return True
+                
+                # Fallback: if we can access text, definitely available
+                if test_response.text:
+                    logger.info("Gemini service is available")
+                    return True
             
             return False
 
@@ -98,14 +110,33 @@ class GeminiConnector(LLMConnector):
                 generation_config=generation_config,
             )
 
-            if not response or not response.text:
+            if not response:
                 logger.warning("Empty response from Gemini")
                 return ""
 
-            text = response.text.strip()
-            cleaned = self._clean_response(text)
-            logger.info(f"Gemini response received: {len(cleaned)} chars")
-            return cleaned
+            # Handle safety blocks gracefully
+            if hasattr(response, 'candidates') and response.candidates:
+                finish_reason = response.candidates[0].finish_reason
+                if finish_reason == 2:  # SAFETY
+                    logger.warning("Response blocked by Gemini safety filters")
+                    return "I cannot provide a response to that query due to safety restrictions. Please rephrase your question."
+                elif finish_reason == 3:  # RECITATION
+                    logger.warning("Response blocked due to recitation")
+                    return "I cannot provide that specific information. Please ask in a different way."
+
+            # Try to get text
+            try:
+                text = response.text.strip()
+                if text:
+                    cleaned = self._clean_response(text)
+                    logger.info(f"Gemini response received: {len(cleaned)} chars")
+                    return cleaned
+            except Exception as text_error:
+                logger.warning(f"Could not extract text from response: {text_error}")
+                return ""
+
+            logger.warning("Could not extract valid response from Gemini")
+            return ""
 
         except Exception as e:
             logger.error(f"Error generating response with Gemini: {e}")
@@ -196,8 +227,8 @@ class OllamaConnector(LLMConnector):
                 "top_p": 0.9,
                 "top_k": 40,
                 "repeat_penalty": 1.05,
-                "num_predict": 600,  # allow longer answers
-                "num_ctx": 4096,     # allow bigger context
+                "num_predict": 600,
+                "num_ctx": 4096,
                 "stop": ["\n\nQUESTION:", "\n\nAnswer:", "\n\nQ:"]
             }
         }
@@ -281,8 +312,8 @@ class LLMFactory:
                     logger.info("Using Ollama connector as fallback")
                     return ollama
                 else:
-                    logger.warning("Ollama also not available; using default Ollama connector")
-                    return OllamaConnector()
+                    logger.warning("Ollama also not available; using default Gemini connector anyway")
+                    return gemini  # Return Gemini anyway, let it fail gracefully
         
         elif provider == "ollama":
             ollama = OllamaConnector()

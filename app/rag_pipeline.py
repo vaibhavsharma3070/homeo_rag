@@ -197,6 +197,39 @@ Classification:"""
                 logger.info(f"No valid admin personalization rules, returning original response")
                 return response
             
+            # Check if response contains structured formatting (numbered lists, special sections)
+            has_numbered_list = bool(re.search(r'\n\s*\d+\.', response))
+            has_special_formatting = '**' in response or '##' in response or '\n\n' in response
+            
+            # If response has special formatting, preserve it and only adjust tone slightly
+            if has_numbered_list or has_special_formatting:
+                logger.info("Response has special formatting (numbered lists/sections) - preserving structure")
+                
+                # Only apply tone adjustments, not content rewriting
+                if has_custom_tone:
+                    tone_instruction = refinement_parts[-1] if has_custom_tone else ""
+                    tone_prompt = f"""Adjust the tone of this response to be {tone_instruction.lower()}.
+Keep ALL formatting, numbered lists, sections, and structure EXACTLY as-is.
+Only change the conversational tone/style where appropriate.
+
+Original response:
+{response}
+
+Adjusted response (preserve ALL formatting):"""
+                    
+                    logger.info(f"Applying tone adjustment only (preserving formatting)")
+                    personalized = self.llm_connector.generate_response(tone_prompt).strip()
+                    
+                    # Validate formatting is preserved
+                    if has_numbered_list and not re.search(r'\n\s*\d+\.', personalized):
+                        logger.warning("Tone adjustment removed numbered list, using original")
+                        return response
+                    
+                    return personalized if personalized else response
+                else:
+                    # No tone to apply, return original with formatting intact
+                    return response
+            
             # Build the full prompt
             full_prompt = f"""Original response: {response}
 
@@ -215,7 +248,7 @@ Classification:"""
                 logger.warning("LLM returned the prompt instead of rewriting, using original response")
                 return response
                 
-            return personalized
+            return personalized if personalized else response
             
         except Exception as e:
             logger.warning(f"Could not apply personalization: {e}")
