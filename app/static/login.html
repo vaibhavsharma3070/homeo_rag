@@ -1,0 +1,334 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Login - Homeopathy Knowledge Base</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #e5e7eb;
+        }
+        .auth-container {
+            background: #1a1a1a;
+            border-radius: 16px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            width: 100%;
+            max-width: 420px;
+            padding: 40px;
+            margin: 20px;
+        }
+        .auth-header {
+            text-align: center;
+            margin-bottom: 32px;
+        }
+        .auth-header h1 {
+            font-size: 2rem;
+            font-weight: 700;
+            color: #e5e7eb;
+            margin-bottom: 8px;
+        }
+        .auth-header p {
+            color: #9ca3af;
+            font-size: 0.95rem;
+        }
+        .auth-tabs {
+            display: none; /* Hidden - registration disabled */
+            gap: 8px;
+            margin-bottom: 24px;
+            background: #2a2a2a;
+            padding: 4px;
+            border-radius: 8px;
+        }
+        .auth-tab {
+            flex: 1;
+            padding: 10px 16px;
+            text-align: center;
+            cursor: pointer;
+            border-radius: 6px;
+            transition: all 0.3s ease;
+            font-weight: 500;
+            color: #9ca3af;
+            background: transparent;
+            border: none;
+        }
+        .auth-tab.active {
+            background: #667eea;
+            color: white;
+        }
+        .auth-form {
+            display: none;
+        }
+        .auth-form.active {
+            display: block;
+        }
+        .form-group {
+            margin-bottom: 20px;
+        }
+        .form-group label {
+            display: block;
+            margin-bottom: 8px;
+            color: #d1d5db;
+            font-size: 0.9rem;
+            font-weight: 500;
+        }
+        .form-group input {
+            width: 100%;
+            padding: 12px 16px;
+            background: #2a2a2a;
+            border: 1px solid #3a3a3a;
+            border-radius: 8px;
+            color: #e5e7eb;
+            font-size: 1rem;
+            transition: border-color 0.3s ease;
+        }
+        .form-group input:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+        .error-message {
+            color: #e53e3e;
+            font-size: 0.875rem;
+            margin-top: 8px;
+            display: none;
+        }
+        .error-message.show {
+            display: block;
+        }
+        .submit-btn {
+            width: 100%;
+            padding: 12px 24px;
+            background: #667eea;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            margin-top: 8px;
+        }
+        .submit-btn:hover {
+            background: #764ba2;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+        }
+        .submit-btn:disabled {
+            background: #4a5568;
+            cursor: not-allowed;
+            transform: none;
+        }
+        .switch-text {
+            text-align: center;
+            margin-top: 20px;
+            color: #9ca3af;
+            font-size: 0.9rem;
+        }
+        .switch-text a {
+            color: #667eea;
+            text-decoration: none;
+            font-weight: 500;
+        }
+        .switch-text a:hover {
+            text-decoration: underline;
+        }
+        .logo {
+            text-align: center;
+            font-size: 3rem;
+            margin-bottom: 16px;
+        }
+    </style>
+</head>
+<body>
+    <div class="auth-container">
+        <div class="auth-header">
+            <div class="logo">🌿</div>
+            <h1>Homeopathy RAG</h1>
+            <p>Knowledge Base System</p>
+        </div>
+
+        <!-- Registration tabs commented out - only login available -->
+        <!-- <div class="auth-tabs">
+            <button class="auth-tab active" id="loginTab" onclick="switchTab('login')">Login</button>
+            <button class="auth-tab" id="registerTab" onclick="switchTab('register')">Register</button>
+        </div> -->
+
+        <!-- Login Form -->
+        <form id="loginForm" class="auth-form active" onsubmit="handleLogin(event)">
+            <div class="form-group">
+                <label for="loginEmail">Email</label>
+                <input type="email" id="loginEmail" required placeholder="Enter email address">
+            </div>
+            <div class="form-group">
+                <label for="loginPassword">Password</label>
+                <input type="password" id="loginPassword" required placeholder="Enter password">
+            </div>
+            <div class="error-message" id="loginError"></div>
+            <button type="submit" class="submit-btn" id="loginSubmitBtn">Login</button>
+        </form>
+
+        <!-- Register Form - Commented out, registration disabled -->
+        <!-- <form id="registerForm" class="auth-form" onsubmit="handleRegister(event)">
+            <div class="form-group">
+                <label for="registerUsername">Username</label>
+                <input type="text" id="registerUsername" required placeholder="Enter username">
+            </div>
+            <div class="form-group">
+                <label for="registerEmail">Email</label>
+                <input type="email" id="registerEmail" required placeholder="Enter email address">
+            </div>
+            <div class="form-group">
+                <label for="registerPassword">Password</label>
+                <input type="password" id="registerPassword" required minlength="6" placeholder="Enter password (min 6 characters)">
+            </div>
+            <div class="error-message" id="registerError"></div>
+            <button type="submit" class="submit-btn" id="registerSubmitBtn">Register</button>
+        </form> -->
+    </div>
+
+    <script>
+        const API_BASE = window.location.origin;
+
+        // Check if already logged in
+        function checkAuth() {
+            const token = localStorage.getItem('homeo_rag_auth_token');
+            if (token) {
+                window.location.href = '/app';
+            }
+        }
+
+        // Switch between login and register tabs - Commented out, registration disabled
+        // function switchTab(tab) {
+        //     const loginTab = document.getElementById('loginTab');
+        //     const registerTab = document.getElementById('registerTab');
+        //     const loginForm = document.getElementById('loginForm');
+        //     const registerForm = document.getElementById('registerForm');
+        //     const loginError = document.getElementById('loginError');
+        //     const registerError = document.getElementById('registerError');
+
+        //     if (tab === 'login') {
+        //         loginTab.classList.add('active');
+        //         registerTab.classList.remove('active');
+        //         loginForm.classList.add('active');
+        //         registerForm.classList.remove('active');
+        //     } else {
+        //         loginTab.classList.remove('active');
+        //         registerTab.classList.add('active');
+        //         loginForm.classList.remove('active');
+        //         registerForm.classList.add('active');
+        //     }
+
+        //     // Clear errors
+        //     loginError.classList.remove('show');
+        //     loginError.textContent = '';
+        //     registerError.classList.remove('show');
+        //     registerError.textContent = '';
+        // }
+
+        // Handle login
+        async function handleLogin(event) {
+            event.preventDefault();
+            const email = document.getElementById('loginEmail').value;
+            const password = document.getElementById('loginPassword').value;
+            const errorDiv = document.getElementById('loginError');
+            const submitBtn = document.getElementById('loginSubmitBtn');
+
+            errorDiv.classList.remove('show');
+            errorDiv.textContent = '';
+            submitBtn.disabled = true;
+            submitBtn.textContent = 'Logging in...';
+
+            try {
+                const response = await fetch(`${API_BASE}/api/auth/login`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ email, password })
+                });
+
+                const result = await response.json();
+
+                if (response.ok && result.success) {
+                    // Save token and user info
+                    localStorage.setItem('homeo_rag_auth_token', result.token);
+                    localStorage.setItem('homeo_rag_user_info', JSON.stringify(result.user));
+                    
+                    // Redirect to main app
+                    window.location.href = '/app';
+                } else {
+                    errorDiv.textContent = result.detail || 'Invalid email or password';
+                    errorDiv.classList.add('show');
+                }
+            } catch (error) {
+                errorDiv.textContent = 'Login failed. Please try again.';
+                errorDiv.classList.add('show');
+                console.error('Login error:', error);
+            } finally {
+                submitBtn.disabled = false;
+                submitBtn.textContent = 'Login';
+            }
+        }
+
+        // Handle registration - Commented out, registration disabled
+        // async function handleRegister(event) {
+        //     event.preventDefault();
+        //     const username = document.getElementById('registerUsername').value;
+        //     const email = document.getElementById('registerEmail').value;
+        //     const password = document.getElementById('registerPassword').value;
+        //     const errorDiv = document.getElementById('registerError');
+        //     const submitBtn = document.getElementById('registerSubmitBtn');
+
+        //     errorDiv.classList.remove('show');
+        //     errorDiv.textContent = '';
+        //     submitBtn.disabled = true;
+        //     submitBtn.textContent = 'Registering...';
+
+        //     try {
+        //         const response = await fetch(`${API_BASE}/api/auth/register`, {
+        //             method: 'POST',
+        //             headers: {
+        //                 'Content-Type': 'application/json'
+        //             },
+        //             body: JSON.stringify({ username, email, password })
+        //         });
+
+        //         const result = await response.json();
+
+        //         if (response.ok && result.success) {
+        //             // Save token and user info
+        //             localStorage.setItem('homeo_rag_auth_token', result.token);
+        //             localStorage.setItem('homeo_rag_user_info', JSON.stringify(result.user));
+                    
+        //             // Redirect to main app
+        //             window.location.href = '/';
+        //         } else {
+        //             errorDiv.textContent = result.detail || 'Registration failed. Please try again.';
+        //             errorDiv.classList.add('show');
+        //         }
+        //     } catch (error) {
+        //         errorDiv.textContent = 'Registration failed. Please try again.';
+        //         errorDiv.classList.add('show');
+        //         console.error('Registration error:', error);
+        //     } finally {
+        //         submitBtn.disabled = false;
+        //         submitBtn.textContent = 'Register';
+        //     }
+        // }
+
+        // Check auth on page load
+        checkAuth();
+    </script>
+</body>
+</html>
+

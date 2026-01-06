@@ -7,7 +7,7 @@ import sys
 from pathlib import Path
 import json
 import re
-from typing import List, Dict, Any, Tuple
+from typing import List, Dict, Any, Optional, Tuple
 
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain.tools import tool
@@ -38,7 +38,7 @@ os.environ["GOOGLE_API_KEY"] = settings.gemini_api_key
 
 model = ChatGoogleGenerativeAI(
     model=settings.gemini_model,
-    temperature=0.0,
+    temperature=0.2,
 )
 
 # ----------------------
@@ -289,10 +289,10 @@ def _simple_fallback_query(user_question: str) -> Tuple[str, List[Any], Dict[str
 # ----------------------
 # Format Results for User
 # ----------------------
-def _format_results(rows: List[Dict], sql: str, params: List, debug: Dict, user_question: str) -> str:
-    """Format query results - return RAW data for LLM to process."""
+def _format_results(rows: List[Dict], sql: str, params: List, debug: Dict, user_question: str) -> Tuple[str, List[str]]:
+    """Format query results - return RAW data for LLM to process and list of filenames."""
     if not rows:
-        return "NO_RESULTS_FOUND"
+        return "NO_RESULTS_FOUND", []
     
     # Extract search terms from question
     search_terms = []
@@ -309,13 +309,26 @@ def _format_results(rows: List[Dict], sql: str, params: List, debug: Dict, user_
     if name_parts:
         search_terms.extend(name_parts)
     
-    # Collect all matching records
+    # Collect all matching records and track filenames
     matching_records = []
+    filenames_set = set()
     
     for row in rows:
         doc = row.get('document', '').strip()
         if not doc:
             continue
+        
+        # Extract filename from metadata
+        metadata = row.get('cmetadata', {})
+        if isinstance(metadata, str):
+            try:
+                metadata = json.loads(metadata)
+            except:
+                metadata = {}
+        
+        filename = metadata.get('filename', '')
+        if filename:
+            filenames_set.add(filename)
         
         # Split by RECORD BREAK if it exists
         if '--- RECORD BREAK ---' in doc:
@@ -354,12 +367,12 @@ def _format_results(rows: List[Dict], sql: str, params: List, debug: Dict, user_
             # Add the raw record
             matching_records.append(record)
     
-    # Return RAW data for LLM to process
+    # Return RAW data for LLM to process and filenames
     if not matching_records:
-        return "NO_RESULTS_FOUND"
+        return "NO_RESULTS_FOUND", []
     
-    # Return records separated by delimiter
-    return "\n\n=== RECORD ===\n\n".join(matching_records)
+    # Return records separated by delimiter and list of unique filenames
+    return "\n\n=== RECORD ===\n\n".join(matching_records), list(filenames_set)
 
 # ----------------------
 # Main Tool: query_knowledge_base
@@ -399,8 +412,15 @@ def query_knowledge_base(user_question: str) -> str:
             cursor.execute(sql, params)
             rows = cursor.fetchall()
         
-        # Format and return results
-        result = _format_results(rows, sql, params, debug, user_question)
+        # Format and return results (with filenames)
+        result, filenames = _format_results(rows, sql, params, debug, user_question)
+        
+        # Store filenames in a global or return them somehow
+        # For now, we'll append filenames to the result in a special format
+        # that can be extracted later, or we'll modify the return to include metadata
+        if filenames and result != "NO_RESULTS_FOUND":
+            # Store filenames in debug info that can be accessed
+            debug['filenames'] = filenames
         
         cursor.close()
         conn.close()
@@ -418,35 +438,67 @@ def query_knowledge_base(user_question: str) -> str:
 tools = [query_knowledge_base]
 model_with_tools = model.bind_tools(tools)
 
-def run_agent(user_input: str, history: List[Dict[str, str]] = None, max_iterations: int = 5) -> str:
-    """Run the agent with conversation history context."""
+def run_agent(user_input: str, history: List[Dict[str, str]] = None, max_iterations: int = 5, user_id: Optional[int] = None, vector_store = None) -> Tuple[str, List[str]]:
+    """Run the agent with conversation history context. Returns (response, filenames)."""
     
     history_context = ""
     if history:
         history_context = "\n".join([f"{h['role'].upper()}: {h['message']}" for h in history[-3:]])
     
+    # Get username and nickname from personalization if available
+    username = None
+    nickname = None
+    if user_id and vector_store:
+        try:
+            if hasattr(vector_store, 'SessionLocal') and hasattr(vector_store, 'UserORM'):
+                with vector_store.SessionLocal() as db:
+                    user = db.query(vector_store.UserORM).filter_by(id=user_id).first()
+                    if user:
+                        username = user.username
+                    
+                    # Get admin's personalization (shared across all admins)
+                    admin_user = db.query(vector_store.UserORM).filter_by(role='admin').order_by(vector_store.UserORM.id.asc()).first()
+                    if admin_user and hasattr(vector_store, 'get_user_personalization'):
+                        personalization = vector_store.get_user_personalization(admin_user.id)
+                        if personalization and personalization.get('nickname'):
+                            nickname = personalization['nickname'].strip()
+        except Exception as e:
+            print(f"⚠️ Could not retrieve user info for user_id {user_id}: {e}")
+    
+    # Track filenames from tool results
+    agent_filenames = []
+    
     system_content = """You are a helpful medical records assistant with access to a patient database.
 
-CRITICAL RULES:
-1. ALWAYS use the query_knowledge_base tool to search for information
-2. The tool returns RAW patient records - you must extract and present the relevant information
-3. Check conversation history for context (pronouns like "he/she/also/too" refer to previous subjects)
-4. Give direct, natural answers in a conversational tone
-5. Present information as if you're reading from patient files
-6. If multiple records match, mention the most relevant one or ask for clarification
-7. If tool returns "NO_RESULTS_FOUND", say you don't have that information
+    **CRITICAL REQUIREMENT:**
+    After you receive tool results from query_knowledge_base, you MUST ALWAYS write a natural language summary of the data.
+    NEVER return empty content. Even if the data is minimal, you must describe what you found.
 
-OUTPUT FORMAT:
-- For simple queries (name, contact, address): Give direct answer
-  Example: "The contact number is +1-555-678-1234."
-  
-- For detailed queries (patient info): Give a brief summary
-  Example: "John Doe is a 34-year-old male engineer who visited on November 3, 2025..."
+    STRICT RULES:
+    1. ALWAYS use the query_knowledge_base tool first to search for information
+    2. After receiving tool results, you MUST write at least 2-3 sentences describing the data
+    3. If the tool returns patient records, extract key details (name, age, condition, treatment)
+    4. Format your response naturally, as if explaining to a colleague
+    5. If tool returns "NO_RESULTS_FOUND", state clearly: "I don't have information about that patient in the database"
+    6. Please don't say Good morning each time"""
+    
+    # Add nickname as AI identity if available
+    if nickname:
+        system_content += f"\n    7. Your name is {nickname}. This is your identity. Always refer to yourself as {nickname}. When asked 'who are you?' or 'what is your name?', respond that you are {nickname}."
+    
+    # Add dynamic username information if available
+    if username:
+        system_content += f"\n    8. If the user asks about their name or who they are, their username is: {username}"
 
-- Never say: "I found X records", "According to the database", "The search returned"
-- Never return empty responses - always provide an answer based on tool results
+    system_content += """
 
-**IMPORTANT: After receiving tool results, you MUST provide a natural language answer. Never return empty response.**"""
+    REQUIRED OUTPUT FORMAT:
+    ✅ Good: "Patient H002 is a 41-year-old male who visited on August 12, 2024 with multiple filiform warts..."
+    ✅ Good: "The patient presented with warts for 8 months causing cosmetic discomfort..."
+    ❌ Bad: Empty response
+    ❌ Bad: Just metadata without description
+
+    **YOU MUST PROVIDE TEXT OUTPUT. EMPTY RESPONSES ARE NOT ACCEPTABLE.**"""
 
     if history_context:
         system_content += f"\n\nRecent conversation:\n{history_context}\n\nUse this context to understand pronouns and references."
@@ -494,14 +546,18 @@ OUTPUT FORMAT:
                         cursor.execute(sql, params)
                         rows = cursor.fetchall()
                         
-                        tool_result = _format_results(rows, sql, params, debug, call['args'].get('user_question'))
+                        tool_result, filenames = _format_results(rows, sql, params, debug, call['args'].get('user_question'))
+                        if filenames:
+                            agent_filenames.extend(filenames)
                         print('tool_result ===========================================', tool_result[:500])
+                        print('filenames ===========================================', filenames)
 
                         cursor.close()
                         conn.close()
                     except Exception as e:
                         print(f"❌ Database query error: {e}")
                         tool_result = "NO_RESULTS_FOUND"
+                        filenames = []
                     
                     print(f"\n📦 Tool Result Preview:\n{tool_result[:300]}...\n")
                     
@@ -515,23 +571,67 @@ OUTPUT FORMAT:
         else:
             # No tool calls - this is the final answer
             print('\n✅ Final answer received from model')
+            print('response.content ===========================================', response.content)
             print(f'📝 Response content: "{response.content[:200]}..."')
             
             if not response.content or response.content.strip() == "":
-                print("⚠️ WARNING: LLM returned empty content - using fallback")
-                # Check if we have tool results in message history
+                print("⚠️ WARNING: LLM returned empty content - forcing retry with explicit instructions")
+                
+                # Find the most recent tool result
+                tool_result_content = None
                 for msg in reversed(messages):
                     if isinstance(msg, ToolMessage) and msg.content != "NO_RESULTS_FOUND":
-                        # Extract first few lines as fallback
-                        lines = msg.content.split('\n')[:5]
-                        return "Based on the records: " + ' '.join(lines)
-                return "I couldn't generate a proper response from the data found."
+                        tool_result_content = msg.content
+                        break
+                
+                if tool_result_content:
+                    # Force a response with very explicit prompt
+                    retry_message = HumanMessage(content=f"""You returned an empty response. This is not acceptable.
+
+        Here is the patient data you received from the tool:
+        {tool_result_content[:500]}
+
+        YOU MUST write a 2-3 sentence summary of this patient information RIGHT NOW.
+        Include: Patient ID, age, main complaint, and any treatment mentioned.
+
+        Write the summary now:""")
+                    
+                    messages.append(retry_message)
+                    
+                    try:
+                        print("🔄 Sending retry request with explicit instructions...")
+                        retry_response = model_with_tools.invoke(messages)
+                        
+                        print(f"📨 Retry response content: '{retry_response.content}'")
+                        
+                        if retry_response.content and retry_response.content.strip():
+                            print(f"✅ Retry successful! Got {len(retry_response.content)} chars")
+                            return retry_response.content.strip(), list(set(agent_filenames))
+                        else:
+                            print("❌ Retry also returned empty - using fallback")
+                    except Exception as retry_error:
+                        print(f"❌ Retry failed with error: {retry_error}")
+                
+                # Final fallback - extract from tool results
+                print("⚠️ Using manual fallback to extract patient info")
+                for msg in reversed(messages):
+                    if isinstance(msg, ToolMessage) and msg.content != "NO_RESULTS_FOUND":
+                        # Parse the tool result and create a basic summary
+                        lines = msg.content.split('\n')
+                        patient_info = []
+                        for line in lines[:15]:  # First 15 lines usually have key info
+                            if any(key in line for key in ['Patient ID:', 'Age:', 'Gender:', 'Chief Complaints:', 'Date of Visit:']):
+                                patient_info.append(line.strip())
+                        
+                        if patient_info:
+                            return "Patient details: " + " | ".join(patient_info), list(set(agent_filenames))
+                        else:
+                            return "Based on the records: " + ' '.join(lines[:5]), list(set(agent_filenames))
+                
+                return "I found patient records but couldn't generate a proper summary. Please try again.", list(set(agent_filenames))
             
             print(f"✅ Returning final answer ({len(response.content)} chars)")
-            return response.content
-
-    print("\n⚠️ Max iterations reached without final answer")
-    return "I couldn't find a complete answer after multiple attempts."
+            return response.content, list(set(agent_filenames))
 
 # ----------------------
 # Main Execution
@@ -548,9 +648,11 @@ if __name__ == '__main__':
     print(f"\n🎯 Processing: {question}\n")
     print("=" * 60)
     
-    answer = run_agent(question)
+    answer, filenames = run_agent(question)
     
     print("\n" + "=" * 60)
     print("✨ FINAL ANSWER:")
     print("=" * 60)
     print(answer)
+    if filenames:
+        print("\n📄 Sources:", ", ".join(filenames))

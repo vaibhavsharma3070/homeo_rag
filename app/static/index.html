@@ -174,7 +174,7 @@
         .chat-wrapper {
             display: flex;
             flex-direction: column;
-            height: 78vh;
+            height: 90vh;
             background: #0d0d0d;
             border: 1px solid #2a2a2a;
             border-radius: 12px;
@@ -214,19 +214,65 @@
             border: 1px solid #145a4a;
             color: #e5fff5;
             border-bottom-right-radius: 6px;
+            word-wrap: break-word;
         }
         .bubble.ai {
             background: #1f2937;
             border: 1px solid #2a2a2a;
             color: #e5e7eb;
             border-bottom-left-radius: 6px;
+            word-wrap: break-word;
+            position: relative;
+        }
+        .copy-btn {
+            position: absolute;
+            top: 8px;
+            right: 8px;
+            background: none;
+            border: none;
+            color: #9ca3af;
+            padding: 4px;
+            cursor: pointer;
+            font-size: 1.1rem;
+            transition: all 0.2s ease;
+            opacity: 0;
+            pointer-events: none;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 24px;
+            height: 24px;
+        }
+        .bubble.ai:hover .copy-btn {
+            opacity: 1;
+            pointer-events: auto;
+            color: #e5e7eb;
+        }
+        .copy-btn:hover {
+            color: #ffffff;
+            transform: scale(1.1);
+        }
+        .copy-btn:active {
+            transform: scale(0.95);
+        }
+        .copy-btn.copied {
+            color: #10a37f;
+            opacity: 1;
+            pointer-events: auto;
         }
         .message-meta {
             font-size: 0.75rem;
             color: #a0aec0;
             margin: 4px 8px;
         }
-        .chat-input-bar { display: flex; gap: 10px; padding: 12px; border-top: 1px solid #2a2a2a; background: #1a1a1a; }
+        .chat-input-bar { 
+            display: flex; 
+            gap: 10px; 
+            padding: 12px; 
+            border-top: 1px solid #2a2a2a; 
+            background: #1a1a1a; 
+            align-items: flex-end;
+        }
         .chat-text-input {
             flex: 1;
             padding: 12px 14px;
@@ -235,6 +281,17 @@
             font-size: 1rem;
             background: #101010;
             color: #e5e7eb;
+            resize: none;
+            overflow-y: hidden;
+            min-height: 48px;
+            max-height: 96px;
+            line-height: 1.5;
+            font-family: inherit;
+            transition: max-height 0.2s ease;
+        }
+        .chat-text-input.expanded {
+            max-height: 96px;
+            overflow-y: auto;
         }
         .chat-text-input:focus {
             outline: none;
@@ -298,6 +355,7 @@
             padding: 20px;
             box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
             transition: transform 0.2s ease;
+            position: relative;
         }
         .document-item:hover {
             transform: translateY(-2px);
@@ -307,6 +365,7 @@
             font-weight: 600;
             color: #2d3748;
             margin-bottom: 8px;
+            padding-right: 30px;
         }
         .document-info {
             color: #718096;
@@ -314,6 +373,34 @@
             display: flex;
             justify-content: space-between;
             align-items: center;
+        }
+        .document-delete-btn {
+            position: absolute;
+            top: 12px;
+            right: 12px;
+            background: transparent;
+            border: none;
+            color: #9ca3af;
+            cursor: pointer;
+            padding: 6px;
+            border-radius: 6px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 28px;
+            height: 28px;
+            transition: all 0.2s ease;
+            font-size: 18px;
+            font-weight: bold;
+            line-height: 1;
+        }
+        .document-delete-btn:hover {
+            background: #fee;
+            color: #e53e3e;
+            transform: scale(1.1);
+        }
+        .document-delete-btn:active {
+            transform: scale(0.95);
         }
         .delete-doc-btn {
             background: transparent;
@@ -468,6 +555,16 @@
             animation: modalFadeIn 0.3s ease;
         }
 
+        /* Confirmation modal should appear above other modals */
+        #confirmModal {
+            z-index: 10000;
+        }
+
+        /* Custom modal (success/error messages) should appear above all other modals */
+        #customModal {
+            z-index: 10001;
+        }
+
         .modal-overlay.show {
             display: flex;
             align-items: center;
@@ -500,6 +597,63 @@
                 opacity: 1;
                 transform: translateY(0) scale(1);
             }
+        }
+
+        /* User Dropdown Menu Styles */
+        .user-dropdown {
+            position: relative;
+        }
+
+        .user-dropdown-menu {
+            display: none;
+            position: absolute;
+            bottom: 100%;
+            left: 0;
+            margin-bottom: 8px;
+            background: #2a2a2a;
+            border-radius: 8px;
+            padding: 8px;
+            min-width: 200px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+            z-index: 1000;
+            animation: dropdownFadeIn 0.2s ease;
+        }
+
+        .user-dropdown-menu.show {
+            display: block;
+        }
+
+        @keyframes dropdownFadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(-5px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .user-dropdown-item {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 10px 12px;
+            color: #e5e7eb;
+            cursor: pointer;
+            border-radius: 6px;
+            transition: background 0.2s;
+            font-size: 0.9rem;
+        }
+
+        .user-dropdown-item:hover {
+            background: rgba(255, 255, 255, 0.1);
+        }
+
+        .user-dropdown-item svg {
+            width: 18px;
+            height: 18px;
+            stroke: currentColor;
         }
 
         .modal-header {
@@ -556,7 +710,8 @@
             border-right: 1px solid #2a2a2a;
             display: flex;
             flex-direction: column;
-            transition: width .2s ease;
+            transition: width .2s ease, transform .3s ease;
+            z-index: 999;
         }
         body.sidebar-collapsed .sidebar { width: var(--sidebar-width-collapsed); }
         .sidebar-header { padding: 14px 12px; border-bottom: 1px solid #2a2a2a; display: flex; align-items: center; justify-content: space-between; }
@@ -571,6 +726,61 @@
         body.sidebar-collapsed .nav-title { display: none; }
         body.sidebar-collapsed .nav-text { display: none; }
         .nav-icon { width: 18px; height: 18px; display: inline-block; }
+        .history-item {
+            width: 100%;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 4px;
+            position: relative;
+            border-radius: 8px;
+            min-width: 0;
+            overflow: hidden;
+            padding-right: 8px;
+        }
+        .history-item:hover {
+            background: #2a2a2a;
+        }
+        .history-item.active {
+            background: #3a3a3a;
+        }
+        .history-item.active button {
+            color: #10a37f;
+        }
+        .history-item-text {
+            flex: 1;
+            min-width: 0;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        .history-item-delete {
+            opacity: 0;
+            transition: opacity 0.2s ease;
+            background: transparent;
+            border: none;
+            color: #9ca3af;
+            cursor: pointer;
+            padding: 4px;
+            border-radius: 4px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 24px;
+            height: 24px;
+            flex-shrink: 0;
+            margin-right: 4px;
+        }
+        .history-item:hover .history-item-delete {
+            opacity: 1;
+        }
+        .history-item-delete:hover {
+            background: #2a2a2a;
+            color: #e53e3e;
+        }
+        body.sidebar-collapsed .history-item-text { display: none; }
+        body.sidebar-collapsed .history-item-delete { display: none; }
+        body.sidebar-collapsed .nav-title[style*="margin-top"] { display: none; }
 
         .modal-footer {
             display: flex;
@@ -621,40 +831,492 @@
             gap: 5px;
         }
 
-        @media (max-width: 768px) {
+        /* Mobile Menu Toggle Button */
+        .mobile-menu-toggle {
+            display: none;
+            position: fixed;
+            top: 12px;
+            left: 12px;
+            z-index: 1001;
+            background: #1f1f1f;
+            border: 1px solid #2a2a2a;
+            color: #e5e7eb;
+            padding: 0;
+            border-radius: 8px;
+            cursor: pointer;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.5);
+            transition: all 0.2s ease;
+            width: 42px;
+            height: 42px;
+            align-items: center;
+            justify-content: center;
+            touch-action: manipulation;
+        }
+        .mobile-menu-toggle:hover {
+            background: #2a2a2a;
+        }
+        .mobile-menu-toggle:active {
+            background: #333;
+            transform: scale(0.92);
+        }
+        .mobile-menu-toggle svg {
+            width: 22px;
+            height: 22px;
+            stroke-width: 2.5;
+            stroke: currentColor;
+        }
+
+        /* Mobile Responsive Styles */
+        @media (max-width: 1024px) {
             .container {
-                padding: 10px;
+                padding: 15px;
             }
             
+            .chat-wrapper {
+                height: 85vh;
+            }
+            
+            .bubble {
+                max-width: 85%;
+            }
+        }
+
+        @media (max-width: 768px) {
+            /* Mobile Menu Toggle */
+            .mobile-menu-toggle {
+                display: flex !important;
+            }
+            
+            /* Hide toggle when mobile menu is open */
+            body.mobile-menu-open .mobile-menu-toggle {
+                display: none !important;
+            }
+
+            /* Sidebar - Hidden by default on mobile, shown as overlay when toggled */
+            .sidebar {
+                transform: translateX(-100%);
+                z-index: 999;
+                box-shadow: 2px 0 10px rgba(0, 0, 0, 0.3);
+                transition: transform .3s cubic-bezier(0.4, 0, 0.2, 1);
+            }
+            .sidebar.mobile-open {
+                transform: translateX(0);
+            }
+            body.sidebar-collapsed .sidebar {
+                transform: translateX(-100%);
+            }
+            body.sidebar-collapsed .sidebar.mobile-open {
+                transform: translateX(0);
+                width: var(--sidebar-width);
+            }
+            
+            /* Prevent body scroll when mobile menu is open */
+            body.mobile-menu-open {
+                overflow: hidden;
+            }
+
+            /* Container - Full width on mobile */
+            .container {
+                margin-left: 0 !important;
+                padding: 55px 12px 20px 12px;
+                width: 100%;
+            }
+
+            /* Header adjustments */
             .header h1 {
-                font-size: 2rem;
+                font-size: 1.75rem;
             }
             
+            /* Tabs */
             .tabs {
                 flex-direction: column;
-                gap: 5px;
+                gap: 8px;
+            }
+            
+            /* Query Form */
+            .query-form {
+                margin-bottom: 20px;
+            }
+            
+            .query-input {
+                padding: 12px;
+                font-size: 16px; /* Prevents zoom on iOS */
+                min-height: 100px;
+            }
+            
+            .url-input {
+                padding: 12px;
+                font-size: 16px; /* Prevents zoom on iOS */
             }
             
             .query-controls {
-                flex-direction: column;
-                align-items: stretch;
+                flex-direction: row;
+                align-items: center;
+                gap: 10px;
+                flex-wrap: wrap;
             }
             
-            .stats-grid {
-                grid-template-columns: repeat(2, 1fr);
+            .top-k-control {
+                flex: 1;
+                min-width: 120px;
+                justify-content: flex-start;
+                gap: 6px;
+            }
+            
+            .top-k-input {
+                width: 60px;
+                padding: 8px;
+                font-size: 14px;
+            }
+            
+            /* Query input - wider */
+            .query-input {
+                width: 100%;
+                padding: 12px;
+                font-size: 16px;
+                min-height: 100px;
+            }
+            
+            /* URL input - wider */
+            .url-input {
+                width: 100%;
+                padding: 12px;
+                font-size: 16px;
             }
 
+            /* Buttons - Smaller and more compact on mobile */
+            .btn {
+                padding: 10px 16px;
+                font-size: 14px;
+                min-height: 40px;
+                border-radius: 8px;
+            }
+            
+            
+            /* Query submit button - smaller but not full width */
+            .query-form .btn {
+                width: auto;
+                min-width: 90px;
+                padding: 10px 16px;
+                flex-shrink: 0;
+            }
+            
+            /* Upload button - smaller */
+            .upload-area + .btn,
+            .upload-area ~ .btn {
+                width: auto;
+                min-width: 120px;
+                padding: 10px 18px;
+            }
+
+            /* Upload Area */
+            .upload-area {
+                padding: 30px 20px;
+                margin-bottom: 15px;
+            }
+            
+            .upload-text {
+                font-size: 1rem;
+            }
+
+            /* Chat Interface */
+            .chat-wrapper {
+                height: calc(100vh - 140px);
+                border-radius: 8px;
+            }
+            
+            .chat-header {
+                padding: 12px 14px;
+                font-size: 0.95rem;
+            }
+            
+            .chat-messages {
+                padding: 12px;
+            }
+            
+            .bubble {
+                max-width: 90%;
+                padding: 10px 12px;
+                font-size: 0.95rem;
+            }
+            
+            .chat-input-bar {
+                padding: 8px;
+                gap: 4px;
+                align-items: flex-end;
+            }
+            
+            .chat-text-input {
+                flex: 1;
+                padding: 10px 12px;
+                font-size: 16px; /* Prevents zoom on iOS */
+                min-height: 40px;
+                max-height: 120px;
+                width: 0; /* Allows flex to work properly */
+            }
+            
+            /* Character counter - smaller and compact */
+            .chat-input-bar > div {
+                padding: 10px 2px !important;
+                font-size: 0.7rem !important;
+                min-width: 45px;
+                flex-shrink: 0;
+                text-align: center;
+                white-space: nowrap;
+            }
+            
+            /* Send button - compact */
+            .chat-input-bar .btn {
+                padding: 8px 12px;
+                min-width: 65px;
+                width: auto;
+                flex-shrink: 0;
+                font-size: 13px;
+                font-weight: 500;
+            }
+
+            /* Document List */
+            .documents-list {
+                gap: 12px;
+            }
+            
+            .document-item {
+                padding: 15px;
+            }
+            
+            .document-title {
+                font-size: 0.95rem;
+                padding-right: 35px;
+                word-break: break-word;
+            }
+            
+            .document-info {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 8px;
+                font-size: 0.85rem;
+            }
+            
+            .document-delete-btn {
+                width: 32px;
+                height: 32px;
+                top: 10px;
+                right: 10px;
+                font-size: 20px;
+            }
+
+            /* Stats Grid */
+            .stats-grid {
+                grid-template-columns: 1fr;
+                gap: 15px;
+            }
+            
+            .stat-card {
+                padding: 18px;
+            }
+            
+            .stat-number {
+                font-size: 1.75rem;
+            }
+
+            /* Modals */
             .modal-content {
                 margin: 10px;
                 padding: 20px;
+                max-width: calc(100% - 20px);
+                width: calc(100% - 20px);
+            }
+            
+            .modal-header {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 10px;
+            }
+            
+            .modal-icon {
+                font-size: 2rem;
+                margin-right: 0;
+            }
+            
+            .modal-title {
+                font-size: 1.25rem;
+            }
+            
+            .modal-body {
+                font-size: 1rem;
             }
 
             .modal-footer {
                 flex-direction: column;
+                gap: 10px;
             }
 
             .modal-btn {
                 width: 100%;
+                padding: 12px 20px;
+                font-size: 16px;
+                min-height: 44px;
+            }
+            
+            .modal-close {
+                top: 10px;
+                right: 15px;
+                font-size: 1.75rem;
+                padding: 8px;
+            }
+
+            /* File List */
+            .file-item {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 10px;
+                padding: 12px;
+            }
+            
+            .file-item-right {
+                width: 100%;
+                justify-content: space-between;
+            }
+
+            /* Response Area */
+            .response-area {
+                padding: 15px;
+                font-size: 0.95rem;
+            }
+            
+            .reference-item {
+                padding: 12px;
+            }
+
+            /* User Dropdown */
+            .user-dropdown-menu {
+                right: 10px;
+                left: auto;
+                min-width: 200px;
+            }
+
+            /* Sidebar Content */
+            .sidebar-content {
+                padding: 8px;
+            }
+            
+            .nav-item {
+                padding: 12px;
+                font-size: 0.95rem;
+                min-height: 44px;
+            }
+            
+            .nav-icon {
+                width: 20px;
+                height: 20px;
+            }
+
+            /* History Items */
+            .history-item {
+                padding: 10px;
+                min-height: 44px;
+            }
+
+            /* Overlay for mobile sidebar */
+            .sidebar-overlay {
+                display: none;
+                position: fixed;
+                top: 0;
+                left: 0;
+                right: 0;
+                bottom: 0;
+                background: rgba(0, 0, 0, 0.5);
+                z-index: 998;
+            }
+            .sidebar-overlay.show {
+                display: block;
+            }
+        }
+
+        @media (max-width: 480px) {
+            .container {
+                padding: 55px 10px 15px 10px;
+            }
+            
+            .mobile-menu-toggle {
+                top: 10px;
+                left: 10px;
+                width: 40px;
+                height: 40px;
+            }
+            
+            .mobile-menu-toggle svg {
+                width: 21px;
+                height: 21px;
+            }
+            
+            .header h1 {
+                font-size: 1.5rem;
+            }
+            
+            .upload-area {
+                padding: 20px 15px;
+            }
+            
+            .bubble {
+                max-width: 95%;
+                padding: 8px 10px;
+                font-size: 0.9rem;
+            }
+            
+            .stat-number {
+                font-size: 1.5rem;
+            }
+            
+            .document-item {
+                padding: 12px;
+            }
+            
+            .modal-content {
+                margin: 5px;
+                padding: 15px;
+                max-width: calc(100% - 10px);
+                width: calc(100% - 10px);
+            }
+        }
+
+        /* Landscape mobile adjustments */
+        @media (max-width: 768px) and (orientation: landscape) {
+            .chat-wrapper {
+                height: calc(100vh - 100px);
+            }
+            
+            .container {
+                padding-top: 55px;
+            }
+        }
+
+        /* Touch improvements for mobile */
+        @media (max-width: 768px) {
+            /* Better touch targets */
+            button, a, input[type="checkbox"], input[type="radio"] {
+                min-height: 44px;
+                min-width: 44px;
+            }
+            
+            /* Prevent text size adjustment on iOS */
+            input, textarea, select {
+                font-size: 16px !important;
+            }
+            
+            /* Smooth scrolling */
+            * {
+                -webkit-overflow-scrolling: touch;
+            }
+            
+            /* Better tap highlight */
+            a, button {
+                -webkit-tap-highlight-color: rgba(16, 163, 127, 0.2);
+            }
+            
+            /* Prevent pull-to-refresh on mobile */
+            body {
+                overscroll-behavior-y: contain;
             }
         }
     </style>
@@ -666,6 +1328,7 @@
         body.chat-fullscreen .sidebar { display: none; }
         body.chat-fullscreen .container { margin: 0; padding: 0; height: 100vh; }
         body.chat-fullscreen .chat-wrapper { height: 95vh; border-radius: 0; }
+        body.chat-fullscreen .mobile-menu-toggle { display: none !important; }
 
         /* Fancy button subtle shimmer */
         .btn { position: relative; overflow: hidden; }
@@ -697,7 +1360,226 @@
         </div>
     </div>
 
-    <div class="sidebar">
+    <!-- Login Modal -->
+    <div class="modal-overlay" id="loginModal">
+        <div class="modal-content" style="max-width: 400px;">
+            <button class="modal-close" onclick="hideLoginModal()">&times;</button>
+            <div class="modal-header">
+                <div class="modal-icon" style="color: #10a37f;">🔐</div>
+                <h3 class="modal-title">Login</h3>
+            </div>
+            <div class="modal-body">
+                <p style="margin-bottom: 20px; color: #9ca3af;">Please login to continue.</p>
+                <form id="loginForm" onsubmit="handleLogin(event)" style="display: flex; flex-direction: column; gap: 15px;">
+                    <div>
+                        <label for="loginEmail" style="display: block; margin-bottom: 5px; color: #d1d5db; font-size: 0.9rem;">Email</label>
+                        <input type="email" id="loginEmail" required 
+                               style="width: 100%; padding: 10px; background: #2a2a2a; border: 1px solid #3a3a3a; border-radius: 6px; color: #e5e7eb; font-size: 1rem;"
+                               placeholder="Enter email address">
+                    </div>
+                    <div>
+                        <label for="loginPassword" style="display: block; margin-bottom: 5px; color: #d1d5db; font-size: 0.9rem;">Password</label>
+                        <input type="password" id="loginPassword" required
+                               style="width: 100%; padding: 10px; background: #2a2a2a; border: 1px solid #3a3a3a; border-radius: 6px; color: #e5e7eb; font-size: 1rem;"
+                               placeholder="Enter password">
+                    </div>
+                    <div id="loginError" style="color: #e53e3e; font-size: 0.9rem; display: none;"></div>
+                    <div style="display: flex; gap: 10px; justify-content: flex-end;">
+                        <button type="button" class="modal-btn" onclick="hideLoginModal(); showRegisterModal();" style="background: #3a3a3a;">Register</button>
+                        <button type="submit" class="modal-btn modal-btn-primary" id="loginSubmitBtn">Login</button>
+                    </div>
+                    <div style="text-align: center; margin-top: 10px;">
+                        <span style="color: #9ca3af; font-size: 0.9rem;">Don't have an account? </span>
+                        <a href="#" onclick="event.preventDefault(); hideLoginModal(); showRegisterModal();" style="color: #10a37f; text-decoration: none; font-size: 0.9rem;">Sign up</a>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Register Modal -->
+    <div class="modal-overlay" id="registerModal">
+        <div class="modal-content" style="max-width: 400px;">
+            <button class="modal-close" onclick="hideRegisterModal()">&times;</button>
+            <div class="modal-header">
+                <div class="modal-icon" style="color: #667eea;">📝</div>
+                <h3 class="modal-title">Create Account</h3>
+            </div>
+            <div class="modal-body">
+                <p style="margin-bottom: 20px; color: #9ca3af;">Create a new account to get started.</p>
+                <form id="registerForm" onsubmit="handleRegister(event)" style="display: flex; flex-direction: column; gap: 15px;">
+                    <div>
+                        <label for="registerUsername" style="display: block; margin-bottom: 5px; color: #d1d5db; font-size: 0.9rem;">Username</label>
+                        <input type="text" id="registerUsername" required 
+                               style="width: 100%; padding: 10px; background: #2a2a2a; border: 1px solid #3a3a3a; border-radius: 6px; color: #e5e7eb; font-size: 1rem;"
+                               placeholder="Enter username">
+                    </div>
+                    <div>
+                        <label for="registerEmail" style="display: block; margin-bottom: 5px; color: #d1d5db; font-size: 0.9rem;">Email</label>
+                        <input type="email" id="registerEmail" required
+                               style="width: 100%; padding: 10px; background: #2a2a2a; border: 1px solid #3a3a3a; border-radius: 6px; color: #e5e7eb; font-size: 1rem;"
+                               placeholder="Enter email address">
+                    </div>
+                    <div>
+                        <label for="registerPassword" style="display: block; margin-bottom: 5px; color: #d1d5db; font-size: 0.9rem;">Password</label>
+                        <input type="password" id="registerPassword" required minlength="6"
+                               style="width: 100%; padding: 10px; background: #2a2a2a; border: 1px solid #3a3a3a; border-radius: 6px; color: #e5e7eb; font-size: 1rem;"
+                               placeholder="Enter password (min 6 characters)">
+                    </div>
+                    <div id="registerError" style="color: #e53e3e; font-size: 0.9rem; display: none;"></div>
+                    <div style="display: flex; gap: 10px; justify-content: flex-end;">
+                        <button type="button" class="modal-btn" onclick="hideRegisterModal(); showLoginModal();" style="background: #3a3a3a;">Login</button>
+                        <button type="submit" class="modal-btn modal-btn-primary" id="registerSubmitBtn">Register</button>
+                    </div>
+                    <div style="text-align: center; margin-top: 10px;">
+                        <span style="color: #9ca3af; font-size: 0.9rem;">Already have an account? </span>
+                        <a href="#" onclick="event.preventDefault(); hideRegisterModal(); showLoginModal();" style="color: #10a37f; text-decoration: none; font-size: 0.9rem;">Sign in</a>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Confirmation Modal -->
+    <div class="modal-overlay" id="confirmModal">
+        <div class="modal-content" style="max-width: 400px;">
+            <button class="modal-close" onclick="hideConfirmModal()">&times;</button>
+            <div class="modal-header">
+                <div class="modal-icon" style="color: #f6ad55;">⚠️</div>
+                <h3 class="modal-title" id="confirmTitle">Confirm Action</h3>
+            </div>
+            <div class="modal-body">
+                <p id="confirmMessage" style="margin-bottom: 20px; color: #d1d5db;">Are you sure you want to proceed?</p>
+            </div>
+            <div class="modal-footer">
+                <button class="modal-btn" onclick="hideConfirmModal()" style="background: #3a3a3a;">Cancel</button>
+                <button class="modal-btn modal-btn-primary" id="confirmOkBtn" onclick="confirmAction()">Confirm</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Personalization Modal -->
+    <div class="modal-overlay" id="personalizationModal">
+        <div class="modal-content" style="max-width: 700px; max-height: 90vh; overflow-y: auto;">
+            <button class="modal-close" onclick="hidePersonalizationModal()">&times;</button>
+            <div class="modal-header">
+                <h3 class="modal-title" style="font-size: 1.5rem; font-weight: 600; color: #e5e7eb;">Personalization</h3>
+            </div>
+            <div class="modal-body" style="padding: 24px;">
+                <form id="personalizationForm" onsubmit="savePersonalization(event)">
+                    <!-- Base style and tone -->
+                    <div style="margin-bottom: 32px;">
+                        <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 8px;">
+                            <div>
+                                <h4 style="color: #e5e7eb; font-size: 1rem; font-weight: 600; margin-bottom: 4px;">Base style and tone</h4>
+                                <p style="color: #9ca3af; font-size: 0.875rem; margin: 0;">Set the style and tone of how the assistant responds to you. This doesn't impact the assistant's capabilities.</p>
+                            </div>
+                            <select id="baseStyleTone" style="padding: 8px 12px; background: #2a2a2a; border: 1px solid #3a3a3a; border-radius: 6px; color: #e5e7eb; font-size: 0.9rem; cursor: pointer; min-width: 150px;">
+                                <option value="default">Default</option>
+                                <option value="professional">Professional</option>
+                                <option value="casual">Casual</option>
+                                <option value="friendly">Friendly</option>
+                                <option value="formal">Formal</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <!-- Custom instructions -->
+                    <div style="margin-bottom: 32px;">
+                        <h4 style="color: #e5e7eb; font-size: 1rem; font-weight: 600; margin-bottom: 8px;">Custom instructions</h4>
+                        <textarea id="customInstructions" rows="4" style="width: 100%; padding: 12px; background: #2a2a2a; border: 1px solid #3a3a3a; border-radius: 6px; color: #e5e7eb; font-size: 0.9rem; font-family: inherit; resize: vertical;" placeholder="Enter your custom instructions or preferences for how the assistant should respond to you..."></textarea>
+                    </div>
+
+                    <!-- About you -->
+                    <div style="margin-bottom: 32px;">
+                        <h4 style="color: #e5e7eb; font-size: 1rem; font-weight: 600; margin-bottom: 16px;">About you</h4>
+                        <div style="margin-bottom: 16px;">
+                            <label for="nickname" style="display: block; margin-bottom: 6px; color: #d1d5db; font-size: 0.9rem;">Nickname</label>
+                            <input type="text" id="nickname" style="width: 100%; padding: 10px; background: #2a2a2a; border: 1px solid #3a3a3a; border-radius: 6px; color: #e5e7eb; font-size: 0.9rem;" placeholder="Enter your nickname">
+                        </div>
+                        <div>
+                            <label for="occupation" style="display: block; margin-bottom: 6px; color: #d1d5db; font-size: 0.9rem;">Occupation</label>
+                            <input type="text" id="occupation" style="width: 100%; padding: 10px; background: #2a2a2a; border: 1px solid #3a3a3a; border-radius: 6px; color: #e5e7eb; font-size: 0.9rem;" placeholder="Enter your occupation">
+                        </div>
+                    </div>
+
+                    <!-- More about you -->
+                    <div style="margin-bottom: 32px;">
+                        <h4 style="color: #e5e7eb; font-size: 1rem; font-weight: 600; margin-bottom: 8px;">More about you</h4>
+                        <textarea id="moreAboutYou" rows="3" style="width: 100%; padding: 12px; background: #2a2a2a; border: 1px solid #3a3a3a; border-radius: 6px; color: #e5e7eb; font-size: 0.9rem; font-family: inherit; resize: vertical;" placeholder="Interests, values, or preferences to keep in mind"></textarea>
+                    </div>
+
+                    <div id="personalizationError" style="color: #e53e3e; font-size: 0.9rem; margin-bottom: 16px; display: none;"></div>
+
+                    <div style="display: flex; gap: 10px; justify-content: flex-end; border-top: 1px solid #2a2a2a; padding-top: 20px;">
+                        <button type="button" class="modal-btn" onclick="hidePersonalizationModal()" style="background: #3a3a3a;">Cancel</button>
+                        <button type="submit" class="modal-btn modal-btn-primary" id="savePersonalizationBtn">Save</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- User Management Modal -->
+    <div class="modal-overlay" id="userManagementModal">
+        <div class="modal-content" style="max-width: 900px; max-height: 90vh; overflow-y: auto;">
+            <button class="modal-close" onclick="hideUserManagementModal()">&times;</button>
+            <div class="modal-header">
+                <h3 class="modal-title" style="font-size: 1.5rem; font-weight: 600; color: #e5e7eb;">User Management</h3>
+            </div>
+            <div class="modal-body" style="padding: 24px;">
+                <!-- Create User Form -->
+                <div style="margin-bottom: 32px; padding: 20px; background: #1f1f1f; border-radius: 8px; border: 1px solid #3a3a3a;">
+                    <h4 style="color: #e5e7eb; font-size: 1.1rem; font-weight: 600; margin-bottom: 16px;">Create New User</h4>
+                    <form id="createUserForm" onsubmit="createUser(event)">
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px;">
+                            <div>
+                                <label for="newUsername" style="display: block; margin-bottom: 6px; color: #d1d5db; font-size: 0.9rem;">Username *</label>
+                                <input type="text" id="newUsername" required style="width: 100%; padding: 10px; background: #2a2a2a; border: 1px solid #3a3a3a; border-radius: 6px; color: #e5e7eb; font-size: 0.9rem;" placeholder="Enter username">
+                            </div>
+                            <div>
+                                <label for="newEmail" style="display: block; margin-bottom: 6px; color: #d1d5db; font-size: 0.9rem;">Email *</label>
+                                <input type="email" id="newEmail" required style="width: 100%; padding: 10px; background: #2a2a2a; border: 1px solid #3a3a3a; border-radius: 6px; color: #e5e7eb; font-size: 0.9rem;" placeholder="Enter email">
+                            </div>
+                        </div>
+                        <div style="margin-bottom: 16px;">
+                            <label for="newPassword" style="display: block; margin-bottom: 6px; color: #d1d5db; font-size: 0.9rem;">Password *</label>
+                            <input type="password" id="newPassword" required minlength="6" style="width: 100%; padding: 10px; background: #2a2a2a; border: 1px solid #3a3a3a; border-radius: 6px; color: #e5e7eb; font-size: 0.9rem;" placeholder="Enter password (min 6 characters)">
+                        </div>
+                        <div id="createUserError" style="color: #e53e3e; font-size: 0.9rem; margin-bottom: 16px; display: none;"></div>
+                        <div style="display: flex; gap: 10px; justify-content: flex-end;">
+                            <button type="submit" class="modal-btn modal-btn-primary" id="createUserBtn">Create User</button>
+                        </div>
+                    </form>
+                </div>
+
+                <!-- Users List -->
+                <div>
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+                        <h4 style="color: #e5e7eb; font-size: 1.1rem; font-weight: 600;">All Users</h4>
+                        <button type="button" class="modal-btn" onclick="loadUsers()" style="background: #3a3a3a; padding: 8px 16px; font-size: 0.9rem;">Refresh</button>
+                    </div>
+                    <div id="usersList" style="min-height: 200px;">
+                        <div style="text-align: center; padding: 40px; color: #9ca3af;">Loading users...</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Mobile Menu Toggle Button -->
+    <button class="mobile-menu-toggle" id="mobileMenuToggle" onclick="toggleMobileMenu()" aria-label="Toggle menu">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="3" y1="12" x2="21" y2="12"></line>
+            <line x1="3" y1="6" x2="21" y2="6"></line>
+            <line x1="3" y1="18" x2="21" y2="18"></line>
+        </svg>
+    </button>
+
+    <!-- Sidebar Overlay for Mobile -->
+    <div class="sidebar-overlay" id="sidebarOverlay" onclick="closeMobileMenu()"></div>
+
+    <div class="sidebar" id="sidebar">
         <div class="sidebar-header">
             <div class="brand">
                 <img src="/static/images/vr_logo.png" alt="VR Logo" class="brand-logo">
@@ -730,6 +1612,50 @@
                 <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
                 <span class="nav-text">Statistics</span>
             </button>
+            <div class="nav-title" style="margin-top: 20px;">History</div>
+            <div id="chat-history-list" style="max-height: 400px; overflow-y: auto; overflow-x: hidden;">
+                <div class="loading" style="padding: 10px; color: #9ca3af; font-size: 0.85rem;">
+                    <div class="spinner" style="width: 16px; height: 16px;"></div>
+                    Loading history...
+                </div>
+            </div>
+            <div id="user-info" style="margin-top: 20px; padding: 10px; border-top: 1px solid #2a2a2a; display: none;">
+                <div class="user-dropdown">
+                    <div style="display: flex; align-items: center; gap: 8px; color: #9ca3af; font-size: 0.85rem;">
+                        <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
+                            <circle cx="12" cy="7" r="4"></circle>
+                        </svg>
+                        <span id="user-name" style="flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; padding: 4px; border-radius: 4px; transition: background 0.2s;" onclick="toggleUserDropdown(event)" onmouseover="this.style.background='rgba(255,255,255,0.05)'" onmouseout="this.style.background='transparent'"></span>
+                    </div>
+                    <div class="user-dropdown-menu" id="userDropdownMenu">
+                        <div class="user-dropdown-item" onclick="openPersonalization()">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <circle cx="12" cy="12" r="3"></circle>
+                                <path d="M12 1v6m0 6v6M5.64 5.64l4.24 4.24m4.24 4.24l4.24 4.24M1 12h6m6 0h6M5.64 18.36l4.24-4.24m4.24-4.24l4.24-4.24"></path>
+                            </svg>
+                            <span>Personalization</span>
+                        </div>
+                        <div class="user-dropdown-item" onclick="openUserManagement()">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
+                                <circle cx="9" cy="7" r="4"></circle>
+                                <path d="M23 21v-2a4 4 0 0 0-3-3.87"></path>
+                                <path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
+                            </svg>
+                            <span>User Management</span>
+                        </div>
+                        <div class="user-dropdown-item" onclick="handleLogout()">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path>
+                                <polyline points="16 17 21 12 16 7"></polyline>
+                                <line x1="21" y1="12" x2="9" y2="12"></line>
+                            </svg>
+                            <span>Log out</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
         </div>
     </div>
     <div class="container">
@@ -788,10 +1714,9 @@
                 </div>
                 <div class="chat-messages" id="chat-messages"></div>
                 <div class="chat-input-bar">
-                    <input type="text" class="chat-text-input" id="chat-input" placeholder="Ask your question about homeopathy...">
-                    <div class="top-k-control" style="align-items:center; display:flex; gap:8px;">
-                        <label for="chat-top-k">Results:</label>
-                        <input type="number" class="top-k-input" id="chat-top-k" value="5" min="1" max="20">
+                    <textarea class="chat-text-input" id="chat-input" placeholder="Ask your question about homeopathy..." rows="1"></textarea>
+                    <div style="text-align: right; padding: 16px 6px; color: #9ca3af; font-size: 0.8rem;">
+                        <span id="char-count">0</span>/1000
                     </div>
                     <button class="btn" id="send-btn" onclick="sendChatMessage()">➡️ Send</button>
                 </div>
@@ -910,6 +1835,845 @@
             }
         });
 
+        // Authentication functions
+        const AUTH_TOKEN_KEY = 'homeo_rag_auth_token';
+        const USER_INFO_KEY = 'homeo_rag_user_info';
+        let currentUser = null;
+
+        // Get auth token from localStorage
+        function getAuthToken() {
+            try {
+                return localStorage.getItem(AUTH_TOKEN_KEY);
+            } catch (e) {
+                return null;
+            }
+        }
+
+        // Set auth token in localStorage
+        function setAuthToken(token, userInfo) {
+            try {
+                localStorage.setItem(AUTH_TOKEN_KEY, token);
+                localStorage.setItem(USER_INFO_KEY, JSON.stringify(userInfo));
+                currentUser = userInfo;
+                updateUserDisplay();
+            } catch (e) {
+                console.error('Error saving auth token:', e);
+            }
+        }
+
+        // Remove auth token from localStorage
+        function removeAuthToken() {
+            try {
+                localStorage.removeItem(AUTH_TOKEN_KEY);
+                localStorage.removeItem(USER_INFO_KEY);
+                // Clear chat history on logout
+                localStorage.removeItem('homeo_rag_chat_history');
+                localStorage.removeItem('homeo_rag_chat_session_id');
+                // Clear chat state
+                if (typeof chatMessages !== 'undefined') {
+                    chatMessages = [];
+                }
+                if (typeof chatSessionId !== 'undefined') {
+                    chatSessionId = null;
+                }
+                currentUser = null;
+                updateUserDisplay();
+            } catch (e) {
+                console.error('Error removing auth token:', e);
+            }
+        }
+
+        // Get user info from localStorage
+        function getUserInfo() {
+            try {
+                const userInfoStr = localStorage.getItem(USER_INFO_KEY);
+                if (userInfoStr) {
+                    return JSON.parse(userInfoStr);
+                }
+            } catch (e) {
+                console.error('Error getting user info:', e);
+            }
+            return null;
+        }
+
+        // Check if user is authenticated
+        function isAuthenticated() {
+            const token = getAuthToken();
+            const authenticated = token !== null && token !== '';
+            console.log('isAuthenticated check:', authenticated, 'token exists:', !!token);
+            return authenticated;
+        }
+
+        // Update user display
+        function updateUserDisplay() {
+            console.log('updateUserDisplay called, currentUser:', currentUser);
+            const userInfoDiv = document.getElementById('user-info');
+            const userNameSpan = document.getElementById('user-name');
+            console.log('User info div:', userInfoDiv, 'User name span:', userNameSpan);
+            
+            const user = currentUser || getUserInfo();
+            console.log('User data:', user);
+            
+            if (user && user.username) {
+                if (userInfoDiv && userNameSpan) {
+                    userInfoDiv.style.display = 'block';
+                    userNameSpan.textContent = user.username || 'User';
+                    console.log('User display updated:', user.username);
+                }
+                
+                // Show/hide features based on role
+                const isAdmin = user.role === 'admin';
+                
+                // Show/hide personalization menu item
+                const personalizationItem = document.querySelector('.user-dropdown-item[onclick="openPersonalization()"]');
+                if (personalizationItem) {
+                    personalizationItem.style.display = isAdmin ? 'flex' : 'none';
+                }
+                
+                // Show/hide user management menu item
+                const userManagementItem = document.querySelector('.user-dropdown-item[onclick="openUserManagement()"]');
+                if (userManagementItem) {
+                    userManagementItem.style.display = isAdmin ? 'flex' : 'none';
+                }
+                
+                // Show/hide upload section
+                const uploadNavItem = document.querySelector('.nav-item[data-section="upload"]');
+                if (uploadNavItem) {
+                    uploadNavItem.style.display = isAdmin ? 'flex' : 'none';
+                }
+                
+                // Show/hide weblinks section
+                const weblinksNavItem = document.querySelector('.nav-item[data-section="weblinks"]');
+                if (weblinksNavItem) {
+                    weblinksNavItem.style.display = isAdmin ? 'flex' : 'none';
+                }
+                
+                // Show/hide Manage Documents section
+                const documentsNavItem = document.querySelector('.nav-item[data-section="documents"]');
+                if (documentsNavItem) {
+                    documentsNavItem.style.display = isAdmin ? 'flex' : 'none';
+                }
+                
+                // Show/hide Statistics section
+                const statsNavItem = document.querySelector('.nav-item[data-section="stats"]');
+                if (statsNavItem) {
+                    statsNavItem.style.display = isAdmin ? 'flex' : 'none';
+                }
+                
+                // Show/hide delete buttons in documents list
+                const deleteButtons = document.querySelectorAll('.document-delete-btn');
+                deleteButtons.forEach(btn => {
+                    btn.style.display = isAdmin ? 'block' : 'none';
+                });
+            } else {
+                if (userInfoDiv) {
+                    userInfoDiv.style.display = 'none';
+                    console.log('User display hidden');
+                }
+            }
+        }
+
+        // Show login modal
+        function showLoginModal() {
+            console.log('showLoginModal called');
+            const modal = document.getElementById('loginModal');
+            console.log('Modal element:', modal);
+            if (modal) {
+                modal.classList.add('show');
+                document.body.style.overflow = 'hidden';
+                // Clear form
+                const form = document.getElementById('loginForm');
+                const errorDiv = document.getElementById('loginError');
+                if (form) form.reset();
+                if (errorDiv) {
+                    errorDiv.style.display = 'none';
+                    errorDiv.textContent = '';
+                }
+                console.log('Login modal shown');
+            } else {
+                console.error('Login modal element not found!');
+            }
+        }
+
+        // Hide login modal
+        function hideLoginModal() {
+            const modal = document.getElementById('loginModal');
+            if (modal) {
+                modal.classList.remove('show');
+                document.body.style.overflow = 'auto';
+            }
+        }
+
+        // Show register modal
+        function showRegisterModal() {
+            console.log('showRegisterModal called');
+            const modal = document.getElementById('registerModal');
+            console.log('Register modal element:', modal);
+            if (modal) {
+                modal.classList.add('show');
+                document.body.style.overflow = 'hidden';
+                // Clear form
+                const form = document.getElementById('registerForm');
+                const errorDiv = document.getElementById('registerError');
+                if (form) form.reset();
+                if (errorDiv) {
+                    errorDiv.style.display = 'none';
+                    errorDiv.textContent = '';
+                }
+                console.log('Register modal shown');
+            } else {
+                console.error('Register modal element not found!');
+            }
+        }
+
+        // Hide register modal
+        function hideRegisterModal() {
+            const modal = document.getElementById('registerModal');
+            if (modal) {
+                modal.classList.remove('show');
+                document.body.style.overflow = 'auto';
+            }
+        }
+
+        // Close login modal when clicking outside (wait for DOM)
+        function setupLoginModal() {
+            const loginModal = document.getElementById('loginModal');
+            if (loginModal) {
+                loginModal.addEventListener('click', function(e) {
+                    if (e.target === this) {
+                        hideLoginModal();
+                    }
+                });
+            }
+        }
+
+        // Setup register modal click outside
+        function setupRegisterModal() {
+            const registerModal = document.getElementById('registerModal');
+            if (registerModal) {
+                registerModal.addEventListener('click', function(e) {
+                    if (e.target === this) {
+                        hideRegisterModal();
+                    }
+                });
+            }
+        }
+
+        // Handle registration form submission
+        async function handleRegister(event) {
+            event.preventDefault();
+            const username = document.getElementById('registerUsername').value;
+            const email = document.getElementById('registerEmail').value;
+            const password = document.getElementById('registerPassword').value;
+            const errorDiv = document.getElementById('registerError');
+            const submitBtn = document.getElementById('registerSubmitBtn');
+            
+            errorDiv.style.display = 'none';
+            errorDiv.textContent = '';
+            submitBtn.disabled = true;
+            submitBtn.textContent = 'Registering...';
+
+            try {
+                const response = await fetch(`${API_BASE}/api/auth/register`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ username, email, password })
+                });
+
+                const result = await response.json();
+
+                if (response.ok && result.success) {
+                    console.log('Registration successful, token:', result.token, 'user:', result.user);
+                    setAuthToken(result.token, result.user);
+                    hideRegisterModal();
+                    showModal('Registration Successful', 'Your account has been created successfully. You are now logged in.', 'success');
+                } else {
+                    errorDiv.textContent = result.detail || 'Registration failed. Please try again.';
+                    errorDiv.style.display = 'block';
+                }
+            } catch (error) {
+                errorDiv.textContent = 'Registration failed. Please try again.';
+                errorDiv.style.display = 'block';
+                console.error('Registration error:', error);
+            } finally {
+                submitBtn.disabled = false;
+                submitBtn.textContent = 'Register';
+            }
+        }
+
+        // Handle login form submission
+        async function handleLogin(event) {
+            event.preventDefault();
+            const email = document.getElementById('loginEmail').value;
+            const password = document.getElementById('loginPassword').value;
+            const errorDiv = document.getElementById('loginError');
+            const submitBtn = document.getElementById('loginSubmitBtn');
+            
+            errorDiv.style.display = 'none';
+            errorDiv.textContent = '';
+            submitBtn.disabled = true;
+            submitBtn.textContent = 'Logging in...';
+
+            try {
+                const response = await fetch(`${API_BASE}/api/auth/login`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ email, password })
+                });
+
+                const result = await response.json();
+
+                if (response.ok && result.success) {
+                    console.log('Login successful, token:', result.token, 'user:', result.user);
+                    setAuthToken(result.token, result.user);
+                    hideLoginModal();
+                    showModal('Login Successful', 'You are now logged in. You can upload documents.', 'success');
+                    // Retry upload if it was triggered
+                    if (window.pendingUpload) {
+                        window.pendingUpload = false;
+                        setTimeout(() => uploadFilesAsync(), 500);
+                    }
+                } else {
+                    errorDiv.textContent = result.detail || 'Invalid email or password';
+                    errorDiv.style.display = 'block';
+                }
+            } catch (error) {
+                errorDiv.textContent = 'Login failed. Please try again.';
+                errorDiv.style.display = 'block';
+                console.error('Login error:', error);
+            } finally {
+                submitBtn.disabled = false;
+                submitBtn.textContent = 'Login';
+            }
+        }
+
+        // Confirmation modal functions
+        let confirmCallback = null;
+
+        function showConfirmModal(title, message, callback) {
+            const modal = document.getElementById('confirmModal');
+            const titleEl = document.getElementById('confirmTitle');
+            const messageEl = document.getElementById('confirmMessage');
+            
+            if (modal && titleEl && messageEl) {
+                titleEl.textContent = title;
+                messageEl.textContent = message;
+                confirmCallback = callback;
+                modal.classList.add('show');
+                document.body.style.overflow = 'hidden';
+            }
+        }
+
+        function hideConfirmModal() {
+            const modal = document.getElementById('confirmModal');
+            if (modal) {
+                modal.classList.remove('show');
+                document.body.style.overflow = 'auto';
+                confirmCallback = null;
+            }
+        }
+
+        function confirmAction() {
+            if (confirmCallback) {
+                confirmCallback();
+            }
+            hideConfirmModal();
+        }
+
+        // Setup confirmation modal click outside
+        function setupConfirmModal() {
+            const confirmModal = document.getElementById('confirmModal');
+            if (confirmModal) {
+                confirmModal.addEventListener('click', function(e) {
+                    if (e.target === this) {
+                        hideConfirmModal();
+                    }
+                });
+            }
+        }
+
+        // User dropdown functions
+        function toggleUserDropdown(event) {
+            event.stopPropagation();
+            const dropdown = document.getElementById('userDropdownMenu');
+            if (dropdown) {
+                const isShowing = dropdown.classList.contains('show');
+                // Close all dropdowns first
+                closeAllDropdowns();
+                // Toggle this dropdown
+                if (!isShowing) {
+                    dropdown.classList.add('show');
+                }
+            }
+        }
+
+        function closeAllDropdowns() {
+            const dropdown = document.getElementById('userDropdownMenu');
+            if (dropdown) {
+                dropdown.classList.remove('show');
+            }
+        }
+
+        function openPersonalization() {
+            closeAllDropdowns();
+            const user = currentUser || getUserInfo();
+            if (user && user.role === 'admin') {
+                showPersonalizationModal();
+            } else {
+                showModal('Access Denied', 'Only administrators can access personalization settings.', 'error');
+            }
+        }
+
+        // Close dropdown when clicking outside
+        document.addEventListener('click', function(event) {
+            const dropdown = document.getElementById('userDropdownMenu');
+            const userInfo = document.getElementById('user-info');
+            if (dropdown && userInfo && !userInfo.contains(event.target)) {
+                closeAllDropdowns();
+            }
+        });
+
+        // Personalization modal functions
+        async function showPersonalizationModal() {
+            if (!isAuthenticated()) {
+                showLoginModal();
+                return;
+            }
+
+            const modal = document.getElementById('personalizationModal');
+            if (!modal) return;
+
+            // Load current personalization
+            await loadPersonalization();
+
+            modal.classList.add('show');
+            document.body.style.overflow = 'hidden';
+
+            // Setup click outside to close
+            modal.addEventListener('click', function(e) {
+                if (e.target === this) {
+                    hidePersonalizationModal();
+                }
+            });
+        }
+
+        function hidePersonalizationModal() {
+            const modal = document.getElementById('personalizationModal');
+            if (modal) {
+                modal.classList.remove('show');
+                document.body.style.overflow = 'auto';
+            }
+        }
+
+        async function loadPersonalization() {
+            try {
+                const token = getAuthToken();
+                if (!token) return;
+
+                const response = await fetch(`${API_BASE}/api/auth/personalization`, {
+                    headers: {
+                        'Authorization': `Bearer ${token}`
+                    }
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+                    document.getElementById('customInstructions').value = data.custom_instructions || '';
+                    document.getElementById('nickname').value = data.nickname || '';
+                    document.getElementById('occupation').value = data.occupation || '';
+                    document.getElementById('moreAboutYou').value = data.more_about_you || '';
+                    document.getElementById('baseStyleTone').value = data.base_style_tone || 'default';
+                }
+            } catch (error) {
+                console.error('Error loading personalization:', error);
+            }
+        }
+
+        async function savePersonalization(event) {
+            event.preventDefault();
+            
+            if (!isAuthenticated()) {
+                showLoginModal();
+                return;
+            }
+
+            const errorDiv = document.getElementById('personalizationError');
+            const submitBtn = document.getElementById('savePersonalizationBtn');
+            
+            errorDiv.style.display = 'none';
+            errorDiv.textContent = '';
+            submitBtn.disabled = true;
+            submitBtn.textContent = 'Saving...';
+
+            try {
+                const token = getAuthToken();
+                if (!token) {
+                    throw new Error('Not authenticated');
+                }
+
+                const personalization = {
+                    custom_instructions: document.getElementById('customInstructions').value,
+                    nickname: document.getElementById('nickname').value,
+                    occupation: document.getElementById('occupation').value,
+                    more_about_you: document.getElementById('moreAboutYou').value,
+                    base_style_tone: document.getElementById('baseStyleTone').value
+                };
+
+                const response = await fetch(`${API_BASE}/api/auth/personalization`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token}`
+                    },
+                    body: JSON.stringify(personalization)
+                });
+
+                const result = await response.json();
+
+                if (response.ok && result.success) {
+                    hidePersonalizationModal();
+                    showModal('Personalization Saved', 'Your personalization settings have been saved and will be applied to all your conversations.', 'success');
+                    
+                    // Update stored user info if available
+                    const userInfo = getUserInfo();
+                    if (userInfo) {
+                        userInfo.custom_instructions = personalization.custom_instructions;
+                        userInfo.nickname = personalization.nickname;
+                        userInfo.occupation = personalization.occupation;
+                        userInfo.more_about_you = personalization.more_about_you;
+                        userInfo.base_style_tone = personalization.base_style_tone;
+                        localStorage.setItem(USER_INFO_KEY, JSON.stringify(userInfo));
+                        currentUser = userInfo;
+                    }
+                } else {
+                    errorDiv.textContent = result.detail || 'Failed to save personalization';
+                    errorDiv.style.display = 'block';
+                }
+            } catch (error) {
+                errorDiv.textContent = 'Failed to save personalization. Please try again.';
+                errorDiv.style.display = 'block';
+                console.error('Save personalization error:', error);
+            } finally {
+                submitBtn.disabled = false;
+                submitBtn.textContent = 'Save';
+            }
+        }
+
+        // User Management functions
+        function openUserManagement() {
+            closeAllDropdowns();
+            const user = currentUser || getUserInfo();
+            if (user && user.role === 'admin') {
+                showUserManagementModal();
+            } else {
+                showModal('Access Denied', 'Only administrators can access user management.', 'error');
+            }
+        }
+
+        async function showUserManagementModal() {
+            if (!isAuthenticated()) {
+                showLoginModal();
+                return;
+            }
+
+            const modal = document.getElementById('userManagementModal');
+            if (!modal) return;
+
+            modal.classList.add('show');
+            document.body.style.overflow = 'hidden';
+
+            // Load users list
+            await loadUsers();
+
+            // Setup click outside to close (one-time handler)
+            const clickHandler = function(e) {
+                if (e.target === modal) {
+                    hideUserManagementModal();
+                    modal.removeEventListener('click', clickHandler);
+                }
+            };
+            modal.addEventListener('click', clickHandler);
+        }
+
+        function hideUserManagementModal() {
+            const modal = document.getElementById('userManagementModal');
+            if (modal) {
+                modal.classList.remove('show');
+                document.body.style.overflow = 'auto';
+            }
+        }
+
+        async function loadUsers() {
+            const usersListDiv = document.getElementById('usersList');
+            if (!usersListDiv) return;
+
+            try {
+                const token = getAuthToken();
+                if (!token) {
+                    usersListDiv.innerHTML = '<div style="text-align: center; padding: 40px; color: #e53e3e;">Not authenticated. Please login.</div>';
+                    return;
+                }
+
+                usersListDiv.innerHTML = '<div style="text-align: center; padding: 40px; color: #9ca3af;">Loading users...</div>';
+
+                const url = `${API_BASE}/api/admin/users`;
+                console.log('Fetching users from:', url);
+                
+                const response = await fetch(url, {
+                    method: 'GET',
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'Content-Type': 'application/json'
+                    }
+                });
+                
+                console.log('Response status:', response.status, response.statusText);
+
+                if (response.ok) {
+                    const result = await response.json();
+                    const users = result.users || [];
+                    const currentUserId = (currentUser || getUserInfo())?.id;
+
+                    if (users.length === 0) {
+                        usersListDiv.innerHTML = '<div style="text-align: center; padding: 40px; color: #9ca3af;">No users found.</div>';
+                        return;
+                    }
+
+                    let html = '<div style="display: flex; flex-direction: column; gap: 12px;">';
+                    users.forEach(user => {
+                        const isCurrentUser = user.id === currentUserId;
+                        const roleBadge = user.role === 'admin' 
+                            ? '<span style="background: #dc2626; color: white; padding: 4px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: 600;">ADMIN</span>'
+                            : '<span style="background: #3a3a3a; color: #d1d5db; padding: 4px 8px; border-radius: 4px; font-size: 0.75rem;">USER</span>';
+                        
+                        const createdDate = new Date(user.created_at * 1000).toLocaleDateString();
+                        
+                        html += `
+                            <div style="display: flex; justify-content: space-between; align-items: center; padding: 16px; background: #1f1f1f; border: 1px solid #3a3a3a; border-radius: 8px;">
+                                <div style="flex: 1;">
+                                    <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 8px;">
+                                        <span style="color: #e5e7eb; font-weight: 600; font-size: 1rem;">${escapeHtml(user.username)}</span>
+                                        ${roleBadge}
+                                    </div>
+                                    <div style="color: #9ca3af; font-size: 0.875rem;">
+                                        ${user.email ? escapeHtml(user.email) : 'No email'} • Created: ${createdDate}
+                                    </div>
+                                </div>
+                                <div>
+                                    ${isCurrentUser 
+                                        ? '<span style="color: #9ca3af; font-size: 0.875rem; padding: 8px 16px;">Current User</span>'
+                                        : `<button onclick="deleteUser(${user.id}, '${escapeHtml(user.username)}')" class="modal-btn" style="background: #dc2626; color: white; padding: 8px 16px; font-size: 0.875rem;">Delete</button>`
+                                    }
+                                </div>
+                            </div>
+                        `;
+                    });
+                    html += '</div>';
+                    usersListDiv.innerHTML = html;
+                } else {
+                    let errorMessage = 'Failed to load users';
+                    try {
+                        const error = await response.json();
+                        errorMessage = error.detail || errorMessage;
+                        console.error('Error response:', error);
+                    } catch (e) {
+                        // If response is not JSON, use status text
+                        errorMessage = response.statusText || `Error ${response.status}`;
+                        console.error('Error parsing response:', e);
+                    }
+                    
+                    // Provide helpful message for 404
+                    if (response.status === 404) {
+                        errorMessage = 'Endpoint not found. Please restart the server to register new routes.';
+                    }
+                    
+                    usersListDiv.innerHTML = `<div style="text-align: center; padding: 40px; color: #e53e3e;">Error: ${errorMessage} (Status: ${response.status})</div>`;
+                }
+            } catch (error) {
+                console.error('Error loading users:', error);
+                usersListDiv.innerHTML = '<div style="text-align: center; padding: 40px; color: #e53e3e;">Failed to load users. Please try again.</div>';
+            }
+        }
+
+        async function createUser(event) {
+            event.preventDefault();
+            
+            const errorDiv = document.getElementById('createUserError');
+            const submitBtn = document.getElementById('createUserBtn');
+            const form = document.getElementById('createUserForm');
+            
+            errorDiv.style.display = 'none';
+            errorDiv.textContent = '';
+            submitBtn.disabled = true;
+            submitBtn.textContent = 'Creating...';
+
+            try {
+                const token = getAuthToken();
+                if (!token) {
+                    throw new Error('Not authenticated');
+                }
+
+                const username = document.getElementById('newUsername').value.trim();
+                const email = document.getElementById('newEmail').value.trim();
+                const password = document.getElementById('newPassword').value;
+
+                if (!username || !email || !password) {
+                    throw new Error('All fields are required');
+                }
+
+                if (password.length < 6) {
+                    throw new Error('Password must be at least 6 characters');
+                }
+
+                const response = await fetch(`${API_BASE}/api/admin/users`, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        username: username,
+                        email: email,
+                        password: password
+                    })
+                });
+
+                const result = await response.json();
+
+                if (response.ok) {
+                    showModal('User Created', 'User has been created successfully.', 'success');
+                    form.reset();
+                    await loadUsers();
+                } else {
+                    errorDiv.textContent = result.detail || 'Failed to create user';
+                    errorDiv.style.display = 'block';
+                }
+            } catch (error) {
+                errorDiv.textContent = error.message || 'Failed to create user. Please try again.';
+                errorDiv.style.display = 'block';
+                console.error('Create user error:', error);
+            } finally {
+                submitBtn.disabled = false;
+                submitBtn.textContent = 'Create User';
+            }
+        }
+
+        async function deleteUser(userId, username) {
+            const user = currentUser || getUserInfo();
+            if (user && user.id === userId) {
+                showModal('Error', 'You cannot delete your own account.', 'error');
+                return;
+            }
+
+            showConfirmModal(
+                'Delete User',
+                `Are you sure you want to delete user "${username}"? This action cannot be undone.`,
+                async () => {
+                    try {
+                        const token = getAuthToken();
+                        if (!token) {
+                            throw new Error('Not authenticated');
+                        }
+
+                        const response = await fetch(`${API_BASE}/api/admin/users/${userId}`, {
+                            method: 'DELETE',
+                            headers: {
+                                'Authorization': `Bearer ${token}`,
+                                'Content-Type': 'application/json'
+                            }
+                        });
+
+                        const result = await response.json();
+
+                        if (response.ok) {
+                            showModal('User Deleted', 'User has been deleted successfully.', 'success');
+                            await loadUsers();
+                        } else {
+                            showModal('Error', result.detail || 'Failed to delete user', 'error');
+                        }
+                    } catch (error) {
+                        console.error('Delete user error:', error);
+                        showModal('Error', 'Failed to delete user. Please try again.', 'error');
+                    }
+                }
+            );
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        // Handle logout
+        function handleLogout() {
+            closeAllDropdowns();
+            showConfirmModal(
+                'Logout',
+                'Are you sure you want to logout?',
+                async () => {
+                    try {
+                        await fetch(`${API_BASE}/api/auth/logout`, {
+                            method: 'POST',
+                            headers: {
+                                'Authorization': `Bearer ${getAuthToken()}`
+                            }
+                        });
+                    } catch (e) {
+                        console.error('Logout error:', e);
+                    } finally {
+                        removeAuthToken();
+                        // Redirect to login page
+                        window.location.href = '/';
+                    }
+                }
+            );
+        }
+
+        // Check authentication on page load
+        async function checkAuthOnLoad() {
+            console.log('checkAuthOnLoad called');
+            const userInfo = getUserInfo();
+            const token = getAuthToken();
+            console.log('Stored user info:', userInfo, 'Token exists:', !!token);
+            
+            if (userInfo && token) {
+                currentUser = userInfo;
+                updateUserDisplay();
+                // Verify token is still valid
+                try {
+                    const res = await fetch(`${API_BASE}/api/auth/me`, {
+                        headers: {
+                            'Authorization': `Bearer ${token}`
+                        }
+                    });
+                    if (res.ok) {
+                        const userData = await res.json();
+                        currentUser = userData;
+                        setAuthToken(token, userData); // Update stored user info
+                        updateUserDisplay();
+                    } else {
+                        // Token invalid, clear auth and redirect to login
+                        removeAuthToken();
+                        window.location.href = '/';
+                    }
+                } catch (error) {
+                    console.error('Error verifying auth:', error);
+                    // On error, redirect to login
+                    removeAuthToken();
+                    window.location.href = '/';
+                }
+            } else {
+                // No token or user info, redirect to login
+                console.log('No authentication found, redirecting to login');
+                window.location.href = '/';
+            }
+        }
+
         // Close modal with escape key
         document.addEventListener('keydown', function(e) {
             if (e.key === 'Escape') {
@@ -950,6 +2714,16 @@
 
         // Sidebar navigation replacing old tabs
         function navigate(section, btn) {
+            // Close mobile menu if on mobile
+            if (window.innerWidth <= 768) {
+                closeMobileMenu();
+            }
+            
+            // Save current section to localStorage
+            try {
+                localStorage.setItem('currentSection', section);
+            } catch (_) {}
+            
             // Toggle active nav buttons
             document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
             if (btn) btn.classList.add('active');
@@ -976,6 +2750,12 @@
         }
 
         function toggleSidebar() {
+            // On mobile, toggle mobile menu instead
+            if (window.innerWidth <= 768) {
+                toggleMobileMenu();
+                return;
+            }
+            
             document.body.classList.toggle('sidebar-collapsed');
             // Update toggle icon direction
             try {
@@ -990,6 +2770,46 @@
                 }
             } catch (_) {}
         }
+
+        // Mobile menu functions
+        function toggleMobileMenu() {
+            const sidebar = document.getElementById('sidebar');
+            const overlay = document.getElementById('sidebarOverlay');
+            
+            if (sidebar && overlay) {
+                const isOpen = sidebar.classList.contains('mobile-open');
+                sidebar.classList.toggle('mobile-open');
+                overlay.classList.toggle('show');
+                
+                if (!isOpen) {
+                    document.body.classList.add('mobile-menu-open');
+                    document.body.style.overflow = 'hidden';
+                } else {
+                    document.body.classList.remove('mobile-menu-open');
+                    document.body.style.overflow = '';
+                }
+            }
+        }
+
+        function closeMobileMenu() {
+            const sidebar = document.getElementById('sidebar');
+            const overlay = document.getElementById('sidebarOverlay');
+            
+            if (sidebar && overlay) {
+                sidebar.classList.remove('mobile-open');
+                overlay.classList.remove('show');
+                document.body.classList.remove('mobile-menu-open');
+                document.body.style.overflow = '';
+            }
+        }
+
+
+        // Close mobile menu on window resize if switching to desktop
+        window.addEventListener('resize', function() {
+            if (window.innerWidth > 768) {
+                closeMobileMenu();
+            }
+        });
 
         // File upload handling
         function handleDragOver(e) {
@@ -1121,6 +2941,20 @@
                 return;
             }
 
+            // Check authentication
+            if (!isAuthenticated()) {
+                window.pendingUpload = true;
+                showLoginModal();
+                return;
+            }
+
+            // Check if user is admin
+            const user = currentUser || getUserInfo();
+            if (!user || user.role !== 'admin') {
+                showModal('Access Denied', 'Only administrators can upload documents.', 'error');
+                return;
+            }
+
             const formData = new FormData();
             selectedFiles.forEach(file => formData.append('files', file));
 
@@ -1141,10 +2975,17 @@
             let jobId = null;
             try {
                 // Use fetchWithTimeout with extended timeout for file uploads (15 minutes)
+                const token = getAuthToken();
+                const headers = {};
+                if (token) {
+                    headers['Authorization'] = `Bearer ${token}`;
+                }
+                
                 const res = await fetchWithTimeout(
                     `${API_BASE}/api/ingest/async`, 
                     { 
-                        method: 'POST', 
+                        method: 'POST',
+                        headers: headers,
                         body: formData 
                     },
                     900000  // 15 minutes timeout for large file uploads
@@ -1156,6 +2997,14 @@
                     try {
                         const errorData = await res.json();
                         errorMessage = errorData.detail || errorData.message || errorMessage;
+                        
+                        // Handle authentication errors
+                        if (res.status === 401) {
+                            removeAuthToken();
+                            window.pendingUpload = true;
+                            showLoginModal();
+                            return;
+                        }
                     } catch (parseError) {
                         errorMessage = `Server error: ${res.status} ${res.statusText}`;
                     }
@@ -1301,9 +3150,14 @@
             responseArea.innerHTML = '<div class="loading"><div class="spinner"></div>Searching and generating answer...</div>';
             
             try {
+                const token = getAuthToken();
+                const headers = { 'Content-Type': 'application/json' };
+                if (token) {
+                    headers['Authorization'] = `Bearer ${token}`;
+                }
                 const response = await fetch(`${API_BASE}/api/query`, {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: headers,
                     body: JSON.stringify({ query, top_k: topK })
                 });
                 
@@ -1376,6 +3230,19 @@
         }
         
         async function addWeblink() {
+            // Check authentication
+            if (!isAuthenticated()) {
+                showLoginModal();
+                return;
+            }
+
+            // Check if user is admin
+            const user = currentUser || getUserInfo();
+            if (!user || user.role !== 'admin') {
+                showModal('Access Denied', 'Only administrators can upload web links.', 'error');
+                return;
+            }
+
             const url = document.getElementById("weblink-input").value.trim();
             const responseArea = document.getElementById("weblink-response");
             
@@ -1621,6 +3488,9 @@
                         // Sort documents by ID in descending order (newest first)
                         const sortedDocuments = result.documents.sort((a, b) => (b.id || 0) - (a.id || 0));
                         
+                        const user = currentUser || getUserInfo();
+                        const isAdmin = user && user.role === 'admin';
+                        
                         documentsList.innerHTML = sortedDocuments.map(doc => {
                             // Check if this is a URL source
                             const isUrlSource = doc.metadata && doc.metadata.source_url;
@@ -1634,12 +3504,21 @@
                                 titleDisplay = `📄 ${doc.filename}`;
                             }
                             
+                            // Escape filename for use in JavaScript
+                            const escapedFilename = doc.filename.replace(/'/g, "\\'").replace(/"/g, '&quot;');
+                            
                             return `
                                 <div class="document-item">
+                                    ${isAdmin ? `<button class="document-delete-btn" 
+                                            onclick="deleteDocument('${escapedFilename}')" 
+                                            title="Delete this document"
+                                            aria-label="Delete document">
+                                        ×
+                                    </button>` : ''}
                                     <div class="document-title">${titleDisplay}</div>
                                     <div class="document-info">
                                         <span>🧩 ${doc.total_chunks || 0} chunks</span>
-                                        <span>📏 ${isUrlSource ? 'Web Content' : (doc.metadata?.file_size / 1024 / 1024).toFixed(2) + ' MB'}</span>
+                                        <span>📏 ${isUrlSource ? 'Web Content' : (doc.metadata?.file_size ? (doc.metadata.file_size / 1024 / 1024).toFixed(2) + ' MB' : 'N/A')}</span>
                                         <span class="status-indicator status-healthy">✅ Active</span>
                                     </div>
                                 </div>
@@ -1661,28 +3540,63 @@
             }
         }
 
-        // Delete a single document by id
-        async function deleteDocument(docId) {
-            if (!docId && docId !== 0) return;
-            if (!confirm('Delete this document? This will remove it from the database.')) return;
-            // Disable the clicked button to prevent duplicates
-            try {
-                const btns = Array.from(document.querySelectorAll('.delete-doc-btn'));
-                btns.forEach(b => b.disabled = true);
-                const res = await fetch(`${API_BASE}/api/documents/${docId}`, { method: 'DELETE' });
-                const data = await res.json().catch(() => ({}));
-                if (!res.ok) {
-                    throw new Error(data.detail || 'Deletion endpoint not available');
-                }
-                await refreshUploadedDocsIndex();
-                await loadDocuments();
-                showModal('Document Deleted', 'The document was removed successfully.', 'success');
-            } catch (e) {
-                showModal('Delete Failed', e.message || 'Unable to delete document.', 'error');
-            } finally {
-                const btns = Array.from(document.querySelectorAll('.delete-doc-btn'));
-                btns.forEach(b => b.disabled = false);
+        // Delete a single document by filename
+        async function deleteDocument(filename) {
+            if (!filename) return;
+            
+            const user = currentUser || getUserInfo();
+            if (!user || user.role !== 'admin') {
+                showModal('Access Denied', 'Only administrators can delete documents.', 'error');
+                return;
             }
+            
+            showConfirmModal(
+                'Delete Document',
+                `Are you sure you want to delete "${filename}"? This will remove all chunks of this document from the database. This action cannot be undone.`,
+                async () => {
+                    // Disable the clicked button to prevent duplicates
+                    const deleteBtns = Array.from(document.querySelectorAll('.document-delete-btn'));
+                    deleteBtns.forEach(b => b.disabled = true);
+                    
+                    try {
+                        const token = getAuthToken();
+                        if (!token) {
+                            throw new Error('Not authenticated');
+                        }
+                        
+                        // Debug logging
+                        console.log('deleteDocument: User info:', user);
+                        console.log('deleteDocument: User role:', user?.role);
+                        console.log('deleteDocument: Token exists:', !!token);
+                        
+                        // URL encode the filename for the API call
+                        const encodedFilename = encodeURIComponent(filename);
+                        console.log('deleteDocument: Making DELETE request to:', `${API_BASE}/api/documents/${encodedFilename}`);
+                        
+                        const res = await fetch(`${API_BASE}/api/documents/${encodedFilename}`, { 
+                            method: 'DELETE',
+                            headers: {
+                                'Authorization': `Bearer ${token}`,
+                                'Content-Type': 'application/json'
+                            }
+                        });
+                        const data = await res.json().catch(() => ({}));
+                        console.log('deleteDocument: Response status:', res.status, 'Response data:', data);
+                        
+                        if (!res.ok) {
+                            throw new Error(data.detail || 'Failed to delete document');
+                        }
+                        
+                        // Refresh the uploaded docs index and reload documents list
+                        await refreshUploadedDocsIndex();
+                        await loadDocuments();
+                    } catch (e) {
+                        showModal('Delete Failed', e.message || 'Unable to delete document.', 'error');
+                    } finally {
+                        deleteBtns.forEach(b => b.disabled = false);
+                    }
+                }
+            );
         }
 
         async function loadStats() {
@@ -1832,6 +3746,12 @@
         let chatSessionId = null;
         const CHAT_STORAGE_KEY = 'homeo_rag_chat_history';
         const CHAT_SESSION_KEY = 'homeo_rag_chat_session_id';
+        const CHAT_SOURCES_PREFIX = 'homeo_rag_chat_sources_';
+        
+        // Get per-session storage key for sources
+        function getSessionStorageKey(sessionId) {
+            return sessionId ? `${CHAT_SOURCES_PREFIX}${sessionId}` : CHAT_STORAGE_KEY;
+        }
 
         // Function to check if there are active chats or sessions
         function hasActiveChat() {
@@ -1859,24 +3779,40 @@
 
         function loadChatHistory() {
             try {
-                const raw = localStorage.getItem(CHAT_STORAGE_KEY);
-                chatMessages = Array.isArray(JSON.parse(raw)) ? JSON.parse(raw) : [];
-            } catch (_) {
-                chatMessages = [];
-            }
-            try {
                 chatSessionId = localStorage.getItem(CHAT_SESSION_KEY) || null;
             } catch (_) {
                 chatSessionId = null;
+            }
+            
+            // Load from per-session storage if session ID exists, otherwise from default storage
+            try {
+                const storageKey = getSessionStorageKey(chatSessionId);
+                const raw = localStorage.getItem(storageKey);
+                if (raw) {
+                    chatMessages = Array.isArray(JSON.parse(raw)) ? JSON.parse(raw) : [];
+                } else {
+                    // Fallback to default storage if no per-session data exists
+                    const defaultRaw = localStorage.getItem(CHAT_STORAGE_KEY);
+                    chatMessages = Array.isArray(JSON.parse(defaultRaw)) ? JSON.parse(defaultRaw) : [];
+                }
+            } catch (_) {
+                chatMessages = [];
             }
             // Update button state after loading chat history
             updateNewChatButtonState();
         }
 
         function saveChatHistory() {
-            try { localStorage.setItem(CHAT_STORAGE_KEY, JSON.stringify(chatMessages)); } catch (_) {}
             try {
-                if (chatSessionId) localStorage.setItem(CHAT_SESSION_KEY, chatSessionId);
+                // Save to per-session storage if session ID exists
+                if (chatSessionId) {
+                    const sessionKey = getSessionStorageKey(chatSessionId);
+                    localStorage.setItem(sessionKey, JSON.stringify(chatMessages));
+                    localStorage.setItem(CHAT_SESSION_KEY, chatSessionId);
+                } else {
+                    // Save to default storage if no session ID
+                    localStorage.setItem(CHAT_STORAGE_KEY, JSON.stringify(chatMessages));
+                }
             } catch (_) {}
             // Update button state after saving chat history
             updateNewChatButtonState();
@@ -1897,21 +3833,25 @@
                         ${m.sources.map(src => {
                             const isUrl = src?.metadata?.document_metadata && src.metadata.document_metadata.source_url;
                             const domain = src?.metadata?.document_metadata?.domain;
-                            const score = typeof src?.relevance_score === 'number' ? src.relevance_score.toFixed(3) : 'N/A';
                             if (isUrl) {
                                 const href = src.metadata.document_metadata.source_url;
                                 const label = domain || href;
-                                return `<div style=\"margin-bottom:8px;\">🌐 <a href=\"${href}\" target=\"_blank\" rel=\"noopener noreferrer\" style=\"color:#fff;text-decoration:underline;\">${label}</a> <span style=\"opacity:.8\">(Score: ${score})</span></div>`;
+                                return `<div style=\"margin-bottom:8px;\">🌐 <a href=\"${href}\" target=\"_blank\" rel=\"noopener noreferrer\" style=\"color:#fff;text-decoration:underline;\">${label}</a></div>`;
                             }
                             const fname = src?.filename || 'Unknown Document';
                             const prev = src?.preview || '';
-                            return `<div style=\"margin-bottom:8px;\">📄 ${fname} <span style=\"opacity:.8\">(Score: ${score})</span><div style=\"opacity:.9;margin-top:4px;\">${prev}</div></div>`;
+                            return `<div style=\"margin-bottom:8px;\">📄 ${fname}<div style=\"opacity:.9;margin-top:4px;\">${prev}</div></div>`;
                         }).join('')}
                     </div>
                 ` : '';
+                const copyButton = m.role === 'ai' && !isTyping && m.text ? `
+                    <button class="copy-btn" id="copy-btn-${idx}" onclick="copyToClipboard(${idx})" title="Copy response">
+                        📋
+                    </button>
+                ` : '';
                 return `
                     <div class=\"message-row ${roleClass}\">
-                        <div class=\"bubble ${roleClass}\">${textHtml}${m.role === 'ai' ? sourcesHtml : ''}</div>
+                        <div class=\"bubble ${roleClass}\">${copyButton}${textHtml}${m.role === 'ai' ? sourcesHtml : ''}</div>
                     </div>
                 `;
             }).join('');
@@ -1923,6 +3863,59 @@
             if (el) el.style.display = el.style.display === 'none' ? 'block' : 'none';
         }
 
+        async function copyToClipboard(idx) {
+            const message = chatMessages[idx];
+            if (!message || !message.text) return;
+            
+            try {
+                // Get the plain text (without HTML)
+                const textToCopy = message.text;
+                
+                // Use the Clipboard API
+                await navigator.clipboard.writeText(textToCopy);
+                
+                // Update button to show copied state
+                const copyBtn = document.getElementById(`copy-btn-${idx}`);
+                if (copyBtn) {
+                    const originalIcon = copyBtn.innerHTML;
+                    copyBtn.innerHTML = '✓';
+                    copyBtn.classList.add('copied');
+                    
+                    // Reset after 2 seconds
+                    setTimeout(() => {
+                        copyBtn.innerHTML = originalIcon;
+                        copyBtn.classList.remove('copied');
+                    }, 2000);
+                }
+            } catch (err) {
+                // Fallback for older browsers
+                const textArea = document.createElement('textarea');
+                textArea.value = message.text;
+                textArea.style.position = 'fixed';
+                textArea.style.left = '-999999px';
+                textArea.style.top = '-999999px';
+                document.body.appendChild(textArea);
+                textArea.focus();
+                textArea.select();
+                try {
+                    document.execCommand('copy');
+                    const copyBtn = document.getElementById(`copy-btn-${idx}`);
+                    if (copyBtn) {
+                        const originalIcon = copyBtn.innerHTML;
+                        copyBtn.innerHTML = '✓';
+                        copyBtn.classList.add('copied');
+                        setTimeout(() => {
+                            copyBtn.innerHTML = originalIcon;
+                            copyBtn.classList.remove('copied');
+                        }, 2000);
+                    }
+                } catch (e) {
+                    console.error('Failed to copy:', e);
+                }
+                document.body.removeChild(textArea);
+            }
+        }
+
         function addMessage(role, text, extras = {}) {
             chatMessages.push({ role, text, ...extras });
             saveChatHistory();
@@ -1930,16 +3923,94 @@
             // Button state is already updated in saveChatHistory()
         }
 
+        // Functions to enable/disable chat input
+        // Reset character counter
+        function resetCharCounter() {
+            const charCount = document.getElementById('char-count');
+            if (charCount) {
+                charCount.textContent = '0';
+                charCount.style.color = '#9ca3af';
+            }
+        }
+        
+        // Update send button state based on input content
+        function updateSendButtonState() {
+            const input = document.getElementById('chat-input');
+            const sendBtn = document.getElementById('send-btn');
+            if (!input || !sendBtn) return;
+            
+            const hasText = input.value.trim().length > 0;
+            const isDisabled = input.disabled;
+            const isTooLong = input.value.length > 1000;
+            
+            // Disable send button if input is empty or input is disabled (response coming)
+            if (!hasText || isDisabled || isTooLong) {
+                sendBtn.disabled = true;
+                sendBtn.style.opacity = '0.6';
+                sendBtn.style.cursor = 'not-allowed';
+            } else {
+                sendBtn.disabled = false;
+                sendBtn.style.opacity = '1';
+                sendBtn.style.cursor = 'pointer';
+            }
+        }
+
+        function disableChatInput() {
+            const input = document.getElementById('chat-input');
+            const sendBtn = document.getElementById('send-btn');
+            if (input) {
+                input.disabled = true;
+                input.style.opacity = '0.6';
+                input.style.cursor = 'not-allowed';
+            }
+            if (sendBtn) {
+                sendBtn.disabled = true;
+                sendBtn.style.opacity = '0.6';
+                sendBtn.style.cursor = 'not-allowed';
+            }
+        }
+
+        function enableChatInput() {
+            const input = document.getElementById('chat-input');
+            if (input) {
+                input.disabled = false;
+                input.style.opacity = '1';
+                input.style.cursor = 'text';
+                // Automatically focus the input when response is complete
+                setTimeout(() => {
+                    input.focus();
+                }, 100);
+            }
+            // Update send button state (will be disabled if input is empty)
+            updateSendButtonState();
+        }
+
         async function sendChatMessage() {
             const input = document.getElementById('chat-input');
-            const topKEl = document.getElementById('chat-top-k');
             if (!input) return;
             const query = input.value.trim();
-            const topK = parseInt(topKEl?.value || '5');
             if (!query) return;
+
+            // Validate query length (max 1000 characters as per API limit)
+            if (query.length > 1000) {
+                showModal('Message Too Long', `Your message is ${query.length} characters long. Please keep it under 1000 characters.`, 'warning');
+                enableChatInput();
+                return;
+            }
+
+            // Disable input and send button while processing
+            disableChatInput();
 
             addMessage('user', query);
             input.value = '';
+            // Reset character counter
+            resetCharCounter();
+            // Reset textarea height after sending
+            input.style.height = 'auto';
+            input.classList.remove('expanded');
+            input.style.height = '48px';
+            // Update send button state (will be disabled since input is empty and disabled)
+            updateSendButtonState();
 
             // Typing indicator
             addMessage('ai', '', { typing: true });
@@ -1959,10 +4030,15 @@
                         }
                     } catch (_) { /* proceed without session if API fails */ }
                 }
+                const token = getAuthToken();
+                const headers = { 'Content-Type': 'application/json' };
+                if (token) {
+                    headers['Authorization'] = `Bearer ${token}`;
+                }
                 const response = await fetch(`${API_BASE}/api/query`, {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ query, top_k: topK, session_id: chatSessionId })
+                    headers: headers,
+                    body: JSON.stringify({ query, top_k: 5, session_id: chatSessionId })
                 });
                 const result = await response.json();
                 if (!response.ok) throw new Error(result.detail || 'Query failed');
@@ -1970,11 +4046,15 @@
                 const sources = (result.metadata && result.metadata.bypass === 'small_talk') ? [] : (Array.isArray(result.sources) ? result.sources : []);
                 // Replace typing indicator with streaming typewriter effect
                 startTypewriterRender(typingIndex, answer, sources);
+                // Refresh history list after sending message (to update title if it's the first message)
+                setTimeout(() => loadChatHistoryList(), 1000);
             } catch (error) {
                 chatMessages[typingIndex] = { role: 'ai', text: `❌ ${error.message}` };
                 saveChatHistory();
                 renderChat();
                 showModal('Query Failed', `Error: ${error.message}`, 'error');
+                // Re-enable input on error
+                enableChatInput();
             }
         }
 
@@ -1996,6 +4076,8 @@
                     chatMessages[targetIndex].text = fullText;
                     saveChatHistory();
                     renderChat();
+                    // Re-enable input when typewriter completes
+                    enableChatInput();
                     return;
                 }
                 const next = fullText.slice(pos, pos + stepChars);
@@ -2015,18 +4097,73 @@
         // Enter key support and input sanitation for chat input
         const chatInputEl = document.getElementById('chat-input');
         if (chatInputEl) {
+            // Auto-resize textarea function
+            function autoResizeTextarea() {
+                chatInputEl.style.height = 'auto';
+                const scrollHeight = chatInputEl.scrollHeight;
+                const minHeight = 48; // Single line height
+                const maxHeight = 96; // Double height
+                
+                if (scrollHeight > minHeight) {
+                    chatInputEl.classList.add('expanded');
+                    chatInputEl.style.height = Math.min(scrollHeight, maxHeight) + 'px';
+                } else {
+                    chatInputEl.classList.remove('expanded');
+                    chatInputEl.style.height = minHeight + 'px';
+                }
+            }
+
+            // Handle keydown events
             chatInputEl.addEventListener('keydown', function(e) {
                 if (e.key === 'Enter') {
-                    e.preventDefault();
-                    sendChatMessage();
+                    if (e.shiftKey) {
+                        // Shift+Enter: Allow newline and expand textarea (only if not disabled)
+                        if (!this.disabled) {
+                            e.preventDefault();
+                            const start = this.selectionStart;
+                            const end = this.selectionEnd;
+                            const value = this.value;
+                            this.value = value.substring(0, start) + '\n' + value.substring(end);
+                            this.selectionStart = this.selectionEnd = start + 1;
+                            autoResizeTextarea();
+                        }
+                    } else {
+                        // Enter alone: Send message (only if not disabled)
+                        if (!this.disabled) {
+                            e.preventDefault();
+                            sendChatMessage();
+                            // Reset textarea height after sending
+                            setTimeout(() => {
+                                chatInputEl.style.height = 'auto';
+                                chatInputEl.classList.remove('expanded');
+                                chatInputEl.style.height = '48px';
+                            }, 10);
+                        }
+                    }
                 }
-            });
-            chatInputEl.addEventListener('keydown', function(e) {
+                
+                // Prevent leading spaces
                 if ((e.key === ' ' || e.code === 'Space') && this.selectionStart === 0) {
                     e.preventDefault();
                 }
             });
+
+            // Handle input changes for auto-resize and sanitization
             chatInputEl.addEventListener('input', function() {
+                // Update character count
+                const charCount = document.getElementById('char-count');
+                if (charCount) {
+                    charCount.textContent = this.value.length;
+                    // Change color if approaching limit
+                    if (this.value.length > 900) {
+                        charCount.style.color = '#e53e3e';
+                    } else if (this.value.length > 800) {
+                        charCount.style.color = '#f6ad55';
+                    } else {
+                        charCount.style.color = '#9ca3af';
+                    }
+                }
+                // Remove leading whitespace
                 const originalValue = this.value;
                 const withoutLeading = originalValue.replace(/^\s+/, '');
                 if (originalValue !== withoutLeading) {
@@ -2035,30 +4172,363 @@
                     this.value = withoutLeading;
                     this.setSelectionRange(caret, caret);
                 }
+                // Auto-resize based on content
+                autoResizeTextarea();
+                // Update send button state based on input content
+                updateSendButtonState();
             });
+
+            // Initial resize
+            autoResizeTextarea();
+            // Initial send button state
+            updateSendButtonState();
         }
 
         async function newChat() {
-            if (!confirm('Start a new chat? This will clear your chat history.')) return;
-            // Clear local chat history and session id; do NOT create a new session yet
-            chatMessages = [];
-            chatSessionId = null;
-            try { localStorage.removeItem(CHAT_STORAGE_KEY); } catch (_) {}
-            try { localStorage.removeItem(CHAT_SESSION_KEY); } catch (_) {}
-            const container = document.getElementById('chat-messages');
-            if (container) container.innerHTML = '';
-            renderChat();
-            // Update button state after clearing chat
-            updateNewChatButtonState();
+            // Save current session's data before creating new chat
+            if (chatSessionId && chatMessages.length > 0) {
+                saveChatHistory();
+            }
+            
+            // Create a new session - old session is already saved in DB
+            try {
+                const sidRes = await fetch(`${API_BASE}/api/chat/new`, { method: 'POST' });
+                const sidData = await sidRes.json();
+                if (sidRes.ok && sidData.session_id) {
+                    // Clear current chat but keep old session in DB
+                    chatMessages = [];
+                    chatSessionId = sidData.session_id;
+                    try { 
+                        localStorage.setItem(CHAT_SESSION_KEY, chatSessionId);
+                        // Initialize new session storage
+                        const newSessionKey = getSessionStorageKey(chatSessionId);
+                        localStorage.setItem(newSessionKey, JSON.stringify([]));
+                    } catch (_) {}
+                    const container = document.getElementById('chat-messages');
+                    if (container) container.innerHTML = '';
+                    // Clear input and reset character counter
+                    const input = document.getElementById('chat-input');
+                    if (input) {
+                        input.value = '';
+                        resetCharCounter();
+                    }
+                    renderChat();
+                    updateNewChatButtonState();
+                    // Refresh history list to show new session
+                    setTimeout(() => loadChatHistoryList(), 500);
+                }
+            } catch (error) {
+                console.error('Failed to create new chat session:', error);
+                // Still clear local chat even if API fails
+                chatMessages = [];
+                chatSessionId = null;
+                try { localStorage.removeItem(CHAT_STORAGE_KEY); } catch (_) {}
+                try { localStorage.removeItem(CHAT_SESSION_KEY); } catch (_) {}
+                const container = document.getElementById('chat-messages');
+                if (container) container.innerHTML = '';
+                // Clear input and reset character counter
+                const input = document.getElementById('chat-input');
+                if (input) {
+                    input.value = '';
+                    resetCharCounter();
+                }
+                renderChat();
+                updateNewChatButtonState();
+                loadChatHistoryList();
+            }
+        }
+
+        // Load and display chat history list
+        async function loadChatHistoryList() {
+            const historyList = document.getElementById('chat-history-list');
+            if (!historyList) return;
+            
+            try {
+                const token = getAuthToken();
+                const headers = {};
+                if (token) {
+                    headers['Authorization'] = `Bearer ${token}`;
+                }
+                const response = await fetch(`${API_BASE}/api/chat/sessions/list`, {
+                    headers: headers
+                });
+                const result = await response.json();
+                
+                if (response.ok && result.sessions) {
+                    if (result.sessions.length === 0) {
+                        historyList.innerHTML = '<div style="padding: 10px; color: #9ca3af; font-size: 0.85rem; text-align: center;">No chat history yet</div>';
+                    } else {
+                        historyList.innerHTML = result.sessions.map(session => {
+                            const isActive = session.session_id === chatSessionId;
+                            const escapedTitle = session.title.replace(/'/g, "&#39;").replace(/"/g, "&quot;");
+                            return `
+                                <div class="history-item ${isActive ? 'active' : ''}" style="display: flex; align-items: center; gap: 8px; position: relative; min-width: 0; overflow: hidden;">
+                                    <button style="flex: 1; min-width: 0; text-align: left; padding: 10px 12px; color: inherit; background: transparent; border: none; cursor: pointer; display: flex; align-items: center; gap: 10px; border-radius: 8px; transition: background .2s ease;" 
+                                            onclick="loadChatSession('${session.session_id}')" 
+                                            title="${escapedTitle}"
+                                            onmouseover="this.style.background='#2a2a2a'"
+                                            onmouseout="this.style.background='transparent'">
+                                        <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+                                        </svg>
+                                        <span class="history-item-text">${escapedTitle}</span>
+                                    </button>
+                                    <button class="history-item-delete" 
+                                            onclick="event.stopPropagation(); deleteChatSession('${session.session_id}')" 
+                                            title="Delete this chat"
+                                            aria-label="Delete chat">
+                                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                            <polyline points="3 6 5 6 21 6"></polyline>
+                                            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                                        </svg>
+                                    </button>
+                                </div>
+                            `;
+                        }).join('');
+                    }
+                } else {
+                    historyList.innerHTML = '<div style="padding: 10px; color: #9ca3af; font-size: 0.85rem;">Failed to load history</div>';
+                }
+            } catch (error) {
+                console.error('Error loading chat history:', error);
+                historyList.innerHTML = '<div style="padding: 10px; color: #9ca3af; font-size: 0.85rem;">Error loading history</div>';
+            }
+        }
+
+        // Load a specific chat session
+        async function loadChatSession(sessionId) {
+            if (!sessionId) return;
+            
+            try {
+                // First, try to load from localStorage to preserve sources
+                const oldSessionId = chatSessionId;
+                const oldMessages = [...chatMessages];
+                
+                // Fetch chat history from server
+                const token = getAuthToken();
+                const headers = {};
+                if (token) {
+                    headers['Authorization'] = `Bearer ${token}`;
+                }
+                const response = await fetch(`${API_BASE}/api/chat/${sessionId}`, {
+                    headers: headers
+                });
+                const result = await response.json();
+                
+                if (response.ok && result.messages) {
+                    // Set the session ID
+                    chatSessionId = sessionId;
+                    try { 
+                        localStorage.setItem(CHAT_SESSION_KEY, chatSessionId);
+                    } catch (_) {}
+                    
+                    // Try to load existing messages from per-session localStorage for this session
+                    let existingMessages = [];
+                    try {
+                        const sessionKey = getSessionStorageKey(sessionId);
+                        const raw = localStorage.getItem(sessionKey);
+                        if (raw) {
+                            const parsed = JSON.parse(raw);
+                            if (Array.isArray(parsed)) {
+                                existingMessages = parsed;
+                            }
+                        }
+                    } catch (_) {}
+                    
+                    // Convert server messages to chat format, preserving sources from localStorage
+                    chatMessages = result.messages.map((msg, idx) => {
+                        // Try to find matching message in existing localStorage data
+                        let sources = [];
+                        if (idx < existingMessages.length && existingMessages[idx].role === msg.role) {
+                            const existingText = existingMessages[idx].text || '';
+                            const serverText = msg.message || '';
+                            // If texts match (or are similar), preserve sources
+                            if (existingText.trim() === serverText.trim() || 
+                                (existingText.length > 0 && serverText.length > 0 && 
+                                 Math.abs(existingText.length - serverText.length) < 50)) {
+                                sources = existingMessages[idx].sources || [];
+                            }
+                        }
+                        
+                        return {
+                            role: msg.role,
+                            text: msg.message || '',
+                            sources: sources
+                        };
+                    });
+                    
+                    // Save to localStorage
+                    saveChatHistory();
+                    
+                    // Render the chat
+                    renderChat();
+                    
+                    // Update button state
+                    updateNewChatButtonState();
+                    
+                    // Refresh history list to update active state
+                    loadChatHistoryList();
+                    
+                    // Navigate to chat view
+                    navigate('query', document.querySelector('.nav-item[data-section="query"]'));
+                } else {
+                    showModal('Load Error', 'Failed to load chat session', 'error');
+                }
+            } catch (error) {
+                console.error('Error loading chat session:', error);
+                showModal('Load Error', `Error loading chat session: ${error.message}`, 'error');
+            }
+        }
+
+        // Delete a chat session
+        async function deleteChatSession(sessionId) {
+            if (!sessionId) return;
+            
+            if (!confirm('Are you sure you want to delete this chat session? This action cannot be undone.')) {
+                return;
+            }
+            
+            try {
+                const response = await fetch(`${API_BASE}/api/chat/sessions/${sessionId}`, {
+                    method: 'DELETE'
+                });
+                
+                const result = await response.json();
+                
+                if (response.ok) {
+                    // Remove per-session storage for deleted session
+                    try {
+                        const sessionKey = getSessionStorageKey(sessionId);
+                        localStorage.removeItem(sessionKey);
+                    } catch (_) {}
+                    
+                    // If the deleted session is the currently active one, clear it
+                    if (chatSessionId === sessionId) {
+                        chatMessages = [];
+                        chatSessionId = null;
+                        try { 
+                            localStorage.removeItem(CHAT_STORAGE_KEY);
+                            localStorage.removeItem(CHAT_SESSION_KEY);
+                        } catch (_) {}
+                        renderChat();
+                        updateNewChatButtonState();
+                    }
+                    
+                    // Refresh history list
+                    loadChatHistoryList();
+                    
+                    showModal('Chat Deleted', 'The chat session has been deleted successfully.', 'success');
+                } else {
+                    throw new Error(result.detail || 'Failed to delete chat session');
+                }
+            } catch (error) {
+                console.error('Error deleting chat session:', error);
+                showModal('Delete Failed', `Error deleting chat session: ${error.message}`, 'error');
+            }
+        }
+
+        // Load chat history from server if session exists
+        async function loadChatHistoryFromServer() {
+            if (!chatSessionId) return;
+            try {
+                // First, load from localStorage to preserve sources
+                const localMessages = [...chatMessages];
+                
+                // Also try to load directly from per-session localStorage as fallback
+                let localStorageMessages = [];
+                try {
+                    const sessionKey = getSessionStorageKey(chatSessionId);
+                    const raw = localStorage.getItem(sessionKey);
+                    if (raw) {
+                        const parsed = JSON.parse(raw);
+                        if (Array.isArray(parsed)) {
+                            localStorageMessages = parsed;
+                        }
+                    }
+                } catch (_) {}
+                
+                const token = getAuthToken();
+                const headers = {};
+                if (token) {
+                    headers['Authorization'] = `Bearer ${token}`;
+                }
+                const response = await fetch(`${API_BASE}/api/chat/${chatSessionId}`, {
+                    headers: headers
+                });
+                if (response.ok) {
+                    const result = await response.json();
+                    if (result.messages && Array.isArray(result.messages) && result.messages.length > 0) {
+                        // Convert server messages to chat format
+                        const serverMessages = result.messages.map((msg, idx) => {
+                            // Try to preserve sources from localStorage by matching message position and text
+                            let sources = [];
+                            
+                            // First try per-session localStorage (most reliable)
+                            if (idx < localStorageMessages.length && 
+                                localStorageMessages[idx].role === msg.role) {
+                                const localText = localStorageMessages[idx].text || '';
+                                const serverText = msg.message || '';
+                                if (localText.trim() === serverText.trim() || 
+                                    (localText.length > 0 && serverText.length > 0 && 
+                                     Math.abs(localText.length - serverText.length) < 50)) {
+                                    sources = localStorageMessages[idx].sources || [];
+                                }
+                            }
+                            
+                            // Fallback to current chatMessages if no sources found
+                            if (sources.length === 0 && idx < localMessages.length && localMessages[idx].role === msg.role) {
+                                const localText = localMessages[idx].text || '';
+                                const serverText = msg.message || '';
+                                // If texts match (or are similar), preserve sources
+                                if (localText.trim() === serverText.trim() || 
+                                    (localText.length > 0 && serverText.length > 0 && 
+                                     Math.abs(localText.length - serverText.length) < 50)) {
+                                    sources = localMessages[idx].sources || [];
+                                }
+                            }
+                            
+                            return {
+                                role: msg.role,
+                                text: msg.message || '',
+                                sources: sources
+                            };
+                        });
+                        // Merge with local messages, preferring server messages for consistency but preserving sources
+                        chatMessages = serverMessages;
+                        saveChatHistory();
+                        renderChat();
+                    }
+                }
+            } catch (error) {
+                console.warn('Failed to load chat history from server:', error);
+                // Fall back to local storage if server fails
+            }
         }
 
         // Load initial data
         document.addEventListener('DOMContentLoaded', function() {
-            // Always start with a blank chat on load (device-local)
-            try { localStorage.removeItem(CHAT_STORAGE_KEY); } catch (_) {}
-            try { localStorage.removeItem(CHAT_SESSION_KEY); } catch (_) {}
-            chatMessages = [];
-            chatSessionId = null;
+            // Setup modals
+            setupLoginModal();
+            setupRegisterModal();
+            setupConfirmModal();
+            // Check authentication on page load
+            setTimeout(() => {
+                checkAuthOnLoad();
+            }, 100);
+            // Load chat history from localStorage on page load
+            loadChatHistory();
+            
+            // Load chat history list
+            loadChatHistoryList();
+            
+            // Render chat from localStorage first
+            renderChat();
+            
+            // If we have a session_id, also try to load from server to ensure consistency
+            if (chatSessionId) {
+                loadChatHistoryFromServer();
+            }
+            
             // Check API health
             fetch(`${API_BASE}/health`)
                 .then(response => response.json())
@@ -2079,12 +4549,23 @@
 
             // Build initial index of uploaded documents
             refreshUploadedDocsIndex();
-            // Do not load previous chat: start blank per requirements
-            renderChat();
             // Update button state after initialization
             updateNewChatButtonState();
-            // Default to chat view in new layout
-            navigate('query', document.querySelector('.nav-item[data-section="query"]'));
+            // Restore last viewed section or default to query
+            let savedSection = 'query';
+            try {
+                const saved = localStorage.getItem('currentSection');
+                if (saved && ['upload', 'weblinks', 'query', 'documents', 'stats'].includes(saved)) {
+                    savedSection = saved;
+                }
+            } catch (_) {}
+            const navBtn = document.querySelector(`.nav-item[data-section="${savedSection}"]`);
+            if (navBtn) {
+                navigate(savedSection, navBtn);
+            } else {
+                // Fallback to query if saved section button not found
+                navigate('query', document.querySelector('.nav-item[data-section="query"]'));
+            }
         });
 
         // Build/update an index of uploaded documents from the server

@@ -367,6 +367,13 @@ class DocumentProcessor:
             "total_chunks": len(all_chunks),
             "sheets": all_sheet_results,
             "total_sheets": len(all_sheet_results),
+            "metadata": {
+                "file_size": xlsx_path.stat().st_size,
+                "processing_timestamp": str(xlsx_path.stat().st_mtime),
+                "source_type": "xlsx" if xlsx_path.suffix.lower() == ".xlsx" else "xls",
+                "total_sheets": len(all_sheet_results),
+            },
+            "source_type": "xlsx" if xlsx_path.suffix.lower() == ".xlsx" else "xls"
         }
 
 
