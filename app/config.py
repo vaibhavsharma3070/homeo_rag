@@ -42,6 +42,12 @@ class Settings(BaseSettings):
     gemini_api_key:str
     gemini_model:str
 
+    # Apple Sign-In Configuration
+    apple_team_id: str = ""
+    apple_client_id: str = ""
+    apple_key_id: str = ""
+    apple_private_key_path: str = ""
+
     class Config:
         env_file = ".env"
 

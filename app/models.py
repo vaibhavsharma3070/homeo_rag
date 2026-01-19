@@ -149,3 +149,21 @@ class PersonalizationResponse(BaseModel):
     more_about_you: str
     base_style_tone: str
     updated_at: Optional[int] = None
+
+
+# Apple SSO models
+
+class AppleSignInRequest(BaseModel):
+    """Request model for Apple Sign-In."""
+    identity_token: str = Field(..., description="JWT identity token from Apple")
+    authorization_code: Optional[str] = Field(None, description="Authorization code from Apple")
+    user_info: Optional[Dict[str, Any]] = Field(None, description="User info from Apple (first time only)")
+
+class AppleSignInResponse(BaseModel):
+    """Response model for Apple Sign-In."""
+    success: bool
+    message: str
+    token: Optional[str] = None
+    user: Optional[Dict[str, Any]] = None
+    is_new_user: bool = False
+    timestamp: datetime = Field(default_factory=datetime.now)

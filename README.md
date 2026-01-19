@@ -5,19 +5,11 @@
 
 ## Quick Setup
 
-### 1. Install Ollama
-```bash
-curl -fsSL https://ollama.com/install.sh | sh
-ollama pull phi3:mini
-ollama run phi3:mini
-```
-
-### 2. Create .env file
+### Create .env file
 ```env
 # LLM Configuration
-LLM_PROVIDER=ollama
-OLLAMA_BASE_URL=http://localhost:11434
-OLLAMA_MODEL=phi3:mini
+LLM_PROVIDER=Gemini
+OLLAMA_MODEL=Gemini-flash-lite-2.5
 
 # Vector Store Configuration
 VECTOR_BACKEND=pgvector
@@ -79,9 +71,3 @@ python -m uvicorn app.main:app --host 0.0.0.0 --port 8090
 ## Access Points
 - API: http://localhost:8090
 - Docs: http://localhost:8090/docs
-- Ollama: http://localhost:11434
-
-## One-Line Setup
-```bash
-curl -fsSL https://ollama.com/install.sh | sh && ollama pull phi3:mini && git clone https://github.com/vaibhavsharma3070/homeo_rag.git && cd homeo_rag && python -m venv venv && source venv/bin/activate && pip install -r requirements.txt && docker compose up -d && sleep 30 && psql -h localhost -p 5432 -U dev_user -d embedding_db -c "CREATE EXTENSION IF NOT EXISTS vector;" && python -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8090
-```
