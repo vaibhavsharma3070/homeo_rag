@@ -493,7 +493,6 @@ Example for today ({current_date}):
 ---PRESCRIPTION---
 Date: {current_date}
 
-Patient: User, Age unknown, Gender unknown
 Chief Complaint: Sharp frontal headache worse from light and noise
 
 Rx:
