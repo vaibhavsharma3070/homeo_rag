@@ -269,7 +269,9 @@ async def login(request: LoginRequest):
         try:
             with rag_pipeline.vector_store.SessionLocal() as db:
                 existing_user = db.query(rag_pipeline.vector_store.UserORM).filter_by(email=request.email.lower()).first()
+                print('existing_user', existing_user)
                 user_exists = existing_user is not None
+                print('user_exists', user_exists)
         except Exception as e:
             logger.error(f"Error checking if user exists: {e}")
         
