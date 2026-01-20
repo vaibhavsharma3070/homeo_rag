@@ -6,6 +6,7 @@ from pathlib import Path
 import json
 import re
 from typing import List, Dict, Any, Optional, Tuple
+from datetime import datetime
 
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain.tools import tool
@@ -480,7 +481,51 @@ def run_agent(user_input: str, history: List[Dict[str, str]] = None, max_iterati
     
     system_content = ""
     
-    # PUT CUSTOM INSTRUCTIONS FIRST - MOST IMPORTANT
+    # PRESCRIPTION FORMAT - HIGHEST PRIORITY
+    current_date = datetime.now().strftime("%d/%m/%Y")
+    
+    system_content += f"""## 🚨 CRITICAL: PRESCRIPTION FORMAT REQUIREMENT 🚨 ##
+
+WHENEVER YOU PROVIDE A HOMEOPATHIC REMEDY RECOMMENDATION, YOU **MUST** USE THIS EXACT FORMAT:
+
+Example for today ({current_date}):
+
+---PRESCRIPTION---
+Date: {current_date}
+
+Patient: User, Age unknown, Gender unknown
+Chief Complaint: Sharp frontal headache worse from light and noise
+
+Rx:
+1. Belladonna 30C, one dose, po (orally) for assessment.
+   Instructions: Take one dose orally and observe for 2-3 hours. If symptoms improve, continue with one dose daily for 3-5 days.
+
+Advice: 
+- Rest in a quiet, dimly lit room
+- Stay well-hydrated by drinking plenty of water
+- Avoid sudden movements or loud noises
+- Follow-up if no improvement in 3 days or if symptoms worsen
+
+Modalities:
+- Better from: Rest, quiet, darkness
+- Worse from: Light, noise, sudden movements, touch
+
+Dr. Signature: Nature Care AI
+---END PRESCRIPTION---
+
+⚠️ CRITICAL RULES:
+1. ALWAYS start with ---PRESCRIPTION--- marker on its own line
+2. ALWAYS end with ---END PRESCRIPTION--- marker on its own line
+3. DO NOT use markdown bold (**text**)
+4. DO NOT use regular bullet points outside this format
+5. This format is MANDATORY for ALL remedy recommendations
+6. Use today's date: {current_date}
+7. IMPORTANT: Put each section on a NEW LINE (use line breaks between Date, Patient, Chief Complaint, Rx, Advice, Modalities, Signature)
+8. Each section must be separated by a blank line for readability
+
+"""
+    
+    # PUT CUSTOM INSTRUCTIONS SECOND
     if custom_instructions:
         system_content += f"""## ⚠️ MANDATORY INSTRUCTIONS - MUST FOLLOW STRICTLY ⚠️ ##
 
@@ -494,6 +539,7 @@ def run_agent(user_input: str, history: List[Dict[str, str]] = None, max_iterati
 - YOU HAVE ENOUGH INFORMATION - PROVIDE THE REMEDY NOW
 - Maximum 1 question per response, then provide remedy on next turn
 - DO NOT keep asking endless questions about general symptoms
+- REMEMBER: Use the PRESCRIPTION FORMAT above when providing remedies
 
 """
     
@@ -522,6 +568,14 @@ If the user asks about their name or who they are, their username is: {username}
 2. After receiving tool results, summarize the data clearly in 2-3 sentences
 3. If tool returns "NO_RESULTS_FOUND", state: "I don't have information about that in the database"
 4. Format responses naturally and conversationally
+
+## ⚠️ REMINDER: PRESCRIPTION FORMAT IS MANDATORY ⚠️
+When providing homeopathic remedy recommendations:
+- ALWAYS use ---PRESCRIPTION--- and ---END PRESCRIPTION--- markers
+- Include all sections: Date, Patient, Chief Complaint, Rx, Advice, Modalities, Signature
+- Use medical abbreviations: po (orally), bd (twice daily), tds (three times daily)
+- DO NOT use markdown bold (**text**) or regular formatting
+- See the CRITICAL PRESCRIPTION FORMAT at the top of these instructions
 
 **YOU MUST PROVIDE TEXT OUTPUT. EMPTY RESPONSES ARE NOT ACCEPTABLE.**"""
 

@@ -197,7 +197,15 @@ Classification:"""
                 logger.info(f"No valid admin personalization rules, returning original response")
                 return response
             
-            # Build the full prompt
+            # Check if response contains prescription format - if so, preserve it
+            has_prescription = '---PRESCRIPTION---' in response and '---END PRESCRIPTION---' in response
+            
+            if has_prescription:
+                logger.info(f"Response contains prescription format - preserving it without personalization rewrite")
+                # Don't rewrite prescription-formatted responses as it would lose the format
+                return response
+            
+            # Build the full prompt for non-prescription responses
             full_prompt = f"""Original response: {response}
 
     User preferences:
@@ -551,6 +559,11 @@ Classification:"""
     - Do NOT use multiple languages in the response, Answer must be only in any one language.
     - Please Don't use Here's the rewritten response, adhering to the user's preferences while maintaining the factual content:, From database these kind of words in the response.
     - Please don't say Good morning each time
+    
+    ## CRITICAL: PRESCRIPTION FORMAT
+    - When providing homeopathic remedy recommendations, wrap them with ---PRESCRIPTION--- and ---END PRESCRIPTION--- markers
+    - Include Date, Patient, Chief Complaint, Rx, Advice, Modalities, and Signature sections
+    - Do NOT use markdown bold (**text**) for remedy recommendations
     
     
     ## RULES:

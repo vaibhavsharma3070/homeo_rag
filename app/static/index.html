@@ -479,6 +479,120 @@
             0%, 80%, 100% { opacity: 0.2; transform: translateY(0); }
             40% { opacity: 1; transform: translateY(-2px); }
         }
+        /* Prescription Format Styles */
+        .prescription-container {
+            background: transparent;
+            color: #e5e7eb;
+            border: 1px solid #3a3a3a;
+            border-left: 3px solid #10a37f;
+            border-radius: 6px;
+            padding: 20px 24px;
+            margin: 16px 0;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif;
+            font-size: 15px;
+            line-height: 1.7;
+            max-width: 100%;
+            word-wrap: break-word;
+            white-space: pre-wrap;
+            overflow-wrap: break-word;
+        }
+        .prescription-header {
+            border-bottom: 1px solid #4a4a4a;
+            padding-bottom: 14px;
+            margin-bottom: 18px;
+        }
+        .prescription-date {
+            font-weight: 600;
+            font-size: 14px;
+            margin-bottom: 10px;
+            display: block;
+            color: #10a37f;
+        }
+        .prescription-patient {
+            font-weight: 600;
+            font-size: 16px;
+            margin: 10px 0 6px 0;
+            display: block;
+            color: #ffffff;
+        }
+        .prescription-complaint {
+            font-size: 15px;
+            color: #d1d5db;
+            margin: 6px 0 0 0;
+            display: block;
+            line-height: 1.6;
+        }
+        .prescription-section {
+            margin: 20px 0;
+            display: block;
+        }
+        .prescription-section-title {
+            font-weight: 600;
+            font-size: 15px;
+            margin-bottom: 10px;
+            color: #10a37f;
+            display: block;
+            padding-bottom: 4px;
+            border-bottom: 1px solid rgba(16, 163, 127, 0.2);
+        }
+        .prescription-rx-item {
+            margin: 14px 0;
+            padding-left: 0;
+            display: block;
+        }
+        .prescription-rx-main {
+            font-weight: 600;
+            margin-bottom: 6px;
+            display: block;
+            color: #ffffff;
+            font-size: 15px;
+        }
+        .prescription-rx-instructions {
+            font-size: 14px;
+            color: #a8b3cf;
+            margin-left: 16px;
+            margin-top: 6px;
+            display: block;
+            line-height: 1.6;
+        }
+        .prescription-advice-list {
+            list-style: none;
+            padding-left: 0;
+            margin: 10px 0;
+        }
+        .prescription-advice-list li {
+            margin: 8px 0;
+            padding-left: 20px;
+            position: relative;
+            color: #e5e7eb;
+            font-size: 15px;
+            line-height: 1.6;
+        }
+        .prescription-advice-list li:before {
+            content: "•";
+            position: absolute;
+            left: 4px;
+            font-weight: bold;
+            color: #10a37f;
+        }
+        .prescription-modalities {
+            margin: 10px 0;
+        }
+        .prescription-modality-item {
+            margin: 8px 0 8px 4px;
+            font-size: 15px;
+            color: #e5e7eb;
+            padding-left: 12px;
+            line-height: 1.6;
+        }
+        .prescription-signature {
+            margin-top: 24px;
+            padding-top: 16px;
+            border-top: 1px solid #4a4a4a;
+            font-weight: 600;
+            color: #10a37f;
+            font-size: 15px;
+        }
         .file-list {
             margin-top: 15px;
         }
@@ -3813,6 +3927,174 @@
             updateNewChatButtonState();
         }
 
+        // Helper function to format prescription
+        function formatPrescription(text) {
+            // Check if text contains prescription markers
+            if (!text.includes('---PRESCRIPTION---') || !text.includes('---END PRESCRIPTION---')) {
+                return text.replace(/\n/g, '<br>');
+            }
+            
+            // Extract prescription content
+            const prescriptionMatch = text.match(/---PRESCRIPTION---([\s\S]*?)---END PRESCRIPTION---/);
+            if (!prescriptionMatch) {
+                return text.replace(/\n/g, '<br>');
+            }
+            
+            let prescriptionContent = prescriptionMatch[1].trim();
+            
+            // Debug: Log the raw prescription content to see what we're getting
+            console.log('Raw prescription content:', prescriptionContent);
+            console.log('Contains actual newlines:', prescriptionContent.includes('\n'));
+            
+            // Handle case where text might not have actual newlines
+            // Try to split by various patterns
+            let lines;
+            if (prescriptionContent.includes('\n')) {
+                // Has actual newlines
+                lines = prescriptionContent.split('\n');
+            } else {
+                // No newlines - try to split by section headers
+                // First, add line breaks before section headers if they're missing
+                prescriptionContent = prescriptionContent
+                    .replace(/Date:/g, '\nDate:')
+                    .replace(/Patient:/g, '\nPatient:')
+                    .replace(/Chief Complaint:/g, '\nChief Complaint:')
+                    .replace(/Rx:/g, '\nRx:')
+                    .replace(/Advice:/g, '\nAdvice:')
+                    .replace(/Modalities:/g, '\nModalities:')
+                    .replace(/Dr\. Signature:/g, '\nDr. Signature:')
+                    .replace(/Instructions:/g, '\nInstructions:')
+                    .replace(/(\d+\.)\s+([A-Z])/g, '\n$1 $2'); // Add newlines before numbered items
+                
+                lines = prescriptionContent.split('\n');
+            }
+            
+            console.log('Lines after processing:', lines.length);
+            
+            let html = '<div class="prescription-container">';
+            let currentSection = '';
+            let inRxSection = false;
+            let inAdviceSection = false;
+            let inModalitiesSection = false;
+            
+            for (let line of lines) {
+                line = line.trim();
+                if (!line) continue;
+                
+                // Date
+                if (line.startsWith('Date:')) {
+                    html += '<div class="prescription-header">';
+                    html += `<div class="prescription-date">${escapeHtml(line)}</div>`;
+                    continue;
+                }
+                
+                // Patient
+                if (line.startsWith('Patient:')) {
+                    html += `<div class="prescription-patient">${escapeHtml(line)}</div>`;
+                    continue;
+                }
+                
+                // Chief Complaint
+                if (line.startsWith('Chief Complaint:')) {
+                    html += `<div class="prescription-complaint">${escapeHtml(line)}</div>`;
+                    html += '</div>'; // Close prescription-header
+                    continue;
+                }
+                
+                // Rx Section
+                if (line.startsWith('Rx:')) {
+                    html += '<div class="prescription-section">';
+                    html += `<div class="prescription-section-title">${escapeHtml(line)}</div>`;
+                    inRxSection = true;
+                    inAdviceSection = false;
+                    inModalitiesSection = false;
+                    continue;
+                }
+                
+                // Advice Section
+                if (line.startsWith('Advice:')) {
+                    if (inRxSection) html += '</div>'; // Close previous section
+                    html += '<div class="prescription-section">';
+                    html += `<div class="prescription-section-title">${escapeHtml(line)}</div>`;
+                    html += '<ul class="prescription-advice-list">';
+                    inRxSection = false;
+                    inAdviceSection = true;
+                    inModalitiesSection = false;
+                    continue;
+                }
+                
+                // Modalities Section
+                if (line.startsWith('Modalities:')) {
+                    if (inAdviceSection) html += '</ul></div>'; // Close advice section
+                    if (inRxSection) html += '</div>'; // Close rx section
+                    html += '<div class="prescription-section">';
+                    html += `<div class="prescription-section-title">${escapeHtml(line)}</div>`;
+                    html += '<div class="prescription-modalities">';
+                    inRxSection = false;
+                    inAdviceSection = false;
+                    inModalitiesSection = true;
+                    continue;
+                }
+                
+                // Signature
+                if (line.startsWith('Dr. Signature:')) {
+                    if (inAdviceSection) html += '</ul></div>'; // Close advice section
+                    if (inRxSection) html += '</div>'; // Close rx section
+                    if (inModalitiesSection) html += '</div></div>'; // Close modalities section
+                    html += `<div class="prescription-signature">${escapeHtml(line)}</div>`;
+                    continue;
+                }
+                
+                // Content within sections
+                if (inRxSection) {
+                    if (line.match(/^\d+\./)) {
+                        // Main Rx item
+                        html += `<div class="prescription-rx-item"><div class="prescription-rx-main">${escapeHtml(line)}</div>`;
+                    } else if (line.startsWith('Instructions:')) {
+                        // Instructions for Rx item
+                        html += `<div class="prescription-rx-instructions">${escapeHtml(line)}</div></div>`;
+                    }
+                } else if (inAdviceSection) {
+                    if (line.startsWith('-')) {
+                        html += `<li>${escapeHtml(line.substring(1).trim())}</li>`;
+                    }
+                } else if (inModalitiesSection) {
+                    if (line.startsWith('-') || line.startsWith('Better from:') || line.startsWith('Worse from:')) {
+                        html += `<div class="prescription-modality-item">${escapeHtml(line)}</div>`;
+                    }
+                }
+            }
+            
+            // Close any open sections
+            if (inAdviceSection) html += '</ul></div>';
+            if (inRxSection) html += '</div>';
+            if (inModalitiesSection) html += '</div></div>';
+            
+            html += '</div>'; // Close prescription-container
+            
+            // Handle any text before or after the prescription
+            const beforePrescription = text.substring(0, text.indexOf('---PRESCRIPTION---')).trim();
+            const afterPrescription = text.substring(text.indexOf('---END PRESCRIPTION---') + 22).trim();
+            
+            let finalHtml = '';
+            if (beforePrescription) {
+                finalHtml += beforePrescription.replace(/\n/g, '<br>') + '<br><br>';
+            }
+            finalHtml += html;
+            if (afterPrescription) {
+                finalHtml += '<br><br>' + afterPrescription.replace(/\n/g, '<br>');
+            }
+            
+            return finalHtml;
+        }
+        
+        // Helper function to escape HTML
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
         function renderChat() {
             const container = document.getElementById('chat-messages');
             if (!container) return;
@@ -3821,7 +4103,7 @@
                 const isTyping = !!m.typing;
                 const textHtml = isTyping
                     ? '<div class="typing"><span>Thinking</span><div class="typing-dots"><span></span><span></span><span></span></div></div>'
-                    : (m.text || '').replace(/\n/g, '<br>');
+                    : formatPrescription(m.text || '');
                 const copyButton = m.role === 'ai' && !isTyping && m.text ? `
                     <button class="copy-btn" id="copy-btn-${idx}" onclick="copyToClipboard(${idx})" title="Copy response">
                         📋
@@ -3846,8 +4128,11 @@
             if (!message || !message.text) return;
             
             try {
-                // Get the plain text (without HTML)
-                const textToCopy = message.text;
+                // Get the plain text (remove prescription markers for cleaner copy)
+                let textToCopy = message.text;
+                textToCopy = textToCopy.replace(/---PRESCRIPTION---/g, '');
+                textToCopy = textToCopy.replace(/---END PRESCRIPTION---/g, '');
+                textToCopy = textToCopy.trim();
                 
                 // Use the Clipboard API
                 await navigator.clipboard.writeText(textToCopy);
@@ -3868,7 +4153,10 @@
             } catch (err) {
                 // Fallback for older browsers
                 const textArea = document.createElement('textarea');
-                textArea.value = message.text;
+                let textToCopy = message.text;
+                textToCopy = textToCopy.replace(/---PRESCRIPTION---/g, '');
+                textToCopy = textToCopy.replace(/---END PRESCRIPTION---/g, '');
+                textArea.value = textToCopy.trim();
                 textArea.style.position = 'fixed';
                 textArea.style.left = '-999999px';
                 textArea.style.top = '-999999px';
