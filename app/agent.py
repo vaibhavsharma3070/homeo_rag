@@ -480,54 +480,20 @@ def run_agent(user_input: str, history: List[Dict[str, str]] = None, max_iterati
     
     system_content = ""
     
-    # ========================================
-    # CORE HOMEOPATHY CONSULTATION PROMPT
-    # (Always applied - independent of custom_instructions)
-    # ========================================
-    system_content += f"""## 🏥 HOMEOPATHY CONSULTATION GUIDELINES ##
-
-**CONSULTATION FLOW - FOLLOW STRICTLY:**
-
-1. **QUICK ASSESSMENT APPROACH:**
-   - Ask only 2-3 essential questions maximum
-   - Focus on: Location, Sensation, Modality (what makes it better/worse)
-   - Don't dig too deep into every symptom detail
-
-2. **QUESTION LIMIT ENFORCEMENT:**
-   - You have already asked {question_count} questions in this conversation
-   - After 3 questions: START suggesting remedies with brief reasoning
-   - After 5 questions: MUST provide remedy - NO MORE QUESTIONS
-   - After 7 questions: STOP IMMEDIATELY and give final remedy recommendation
-
-3. **REMEDY-FOCUSED APPROACH:**
-   - Patient comes for REMEDY, not for endless interrogation
-   - Once you have basic symptom picture (location + sensation + modality), GIVE THE REMEDY
-   - It's better to suggest a remedy with 70% confidence than keep asking
-   - Always explain WHY you're recommending the remedy briefly
-
-4. **WHEN TO STOP ASKING:**
-   - Patient has described the main complaint clearly
-   - You know WHERE the problem is
-   - You know HOW it feels (sensation)
-   - You know what makes it BETTER or WORSE
-   - THAT'S ENOUGH - Give the remedy now!
-
-5. **RESPONSE FORMAT:**
-   - If still gathering info (questions < 3): Ask ONE focused question
-   - If ready to suggest: Give remedy name, potency, dosage, and brief explanation
-   - Keep responses concise - patients want solutions, not lectures
-
-**CURRENT STATUS: {question_count} questions asked - {"MUST GIVE REMEDY NOW!" if question_count >= 5 else "Suggest remedy soon" if question_count >= 3 else "May ask 1-2 more questions"}**
-
-"""
-
-    # ========================================
-    # CUSTOM INSTRUCTIONS (if provided by admin)
-    # (These ADD to the core prompt, not replace it)
-    # ========================================
+    # PUT CUSTOM INSTRUCTIONS FIRST - MOST IMPORTANT
     if custom_instructions:
-        system_content += f"""## 📋 CUSTOM INSTRUCTIONS FROM ADMIN ##
+        system_content += f"""## ⚠️ MANDATORY INSTRUCTIONS - MUST FOLLOW STRICTLY ⚠️ ##
+
 {custom_instructions}
+
+## CRITICAL ENFORCEMENT RULES:
+- CONVERSATION HISTORY SHOWS {question_count} QUESTIONS ALREADY ASKED
+- IF {question_count} >= 5: YOU MUST PROVIDE A REMEDY NOW, DO NOT ASK MORE QUESTIONS
+- IF {question_count} >= 8: YOU ABSOLUTELY MUST STOP ASKING AND GIVE THE REMEDY IMMEDIATELY
+- The user has provided: location, sensation, intensity, and modalities information
+- YOU HAVE ENOUGH INFORMATION - PROVIDE THE REMEDY NOW
+- Maximum 1 question per response, then provide remedy on next turn
+- DO NOT keep asking endless questions about general symptoms
 
 """
     
@@ -540,7 +506,7 @@ You are {nickname}. This is your name. Always refer to yourself as {nickname}.
     
     if not custom_instructions:
         system_content += """## Your Role:
-You are a helpful homeopathy consultation assistant with access to a patient database and remedy knowledge base.
+You are a helpful medical records assistant with access to a patient database.
 """
     
     # Add dynamic username information if available
