@@ -3822,23 +3822,6 @@
                 const textHtml = isTyping
                     ? '<div class="typing"><span>Thinking</span><div class="typing-dots"><span></span><span></span><span></span></div></div>'
                     : (m.text || '').replace(/\n/g, '<br>');
-                const sourcesHtml = Array.isArray(m.sources) && m.sources.length > 0 ? `
-                    <div class="sources-toggle" onclick="toggleSources(${idx})">Sources (${m.sources.length})</div>
-                    <div class="ai-sources" id="sources-${idx}" style="display:none;">
-                        ${m.sources.map(src => {
-                            const isUrl = src?.metadata?.document_metadata && src.metadata.document_metadata.source_url;
-                            const domain = src?.metadata?.document_metadata?.domain;
-                            if (isUrl) {
-                                const href = src.metadata.document_metadata.source_url;
-                                const label = domain || href;
-                                return `<div style=\"margin-bottom:8px;\">🌐 <a href=\"${href}\" target=\"_blank\" rel=\"noopener noreferrer\" style=\"color:#fff;text-decoration:underline;\">${label}</a></div>`;
-                            }
-                            const fname = src?.filename || 'Unknown Document';
-                            const prev = src?.preview || '';
-                            return `<div style=\"margin-bottom:8px;\">📄 ${fname}<div style=\"opacity:.9;margin-top:4px;\">${prev}</div></div>`;
-                        }).join('')}
-                    </div>
-                ` : '';
                 const copyButton = m.role === 'ai' && !isTyping && m.text ? `
                     <button class="copy-btn" id="copy-btn-${idx}" onclick="copyToClipboard(${idx})" title="Copy response">
                         📋
@@ -3846,7 +3829,7 @@
                 ` : '';
                 return `
                     <div class=\"message-row ${roleClass}\">
-                        <div class=\"bubble ${roleClass}\">${copyButton}${textHtml}${m.role === 'ai' ? sourcesHtml : ''}</div>
+                        <div class=\"bubble ${roleClass}\">${copyButton}${textHtml}</div>
                     </div>
                 `;
             }).join('');
