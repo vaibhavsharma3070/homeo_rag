@@ -25,7 +25,8 @@ from app.models import (
     DocumentListResponse, IngestionResponse, StatsResponse, 
     LLMTestResponse, ErrorResponse, ChatSessionResponse, ChatHistoryResponse, ChatMessage,
     ChatSessionsListResponse, ChatSessionInfo, LoginRequest, LoginResponse, RegisterRequest, UserInfo,
-    SharePrescriptionRequest, SharePrescriptionResponse, SharedPrescriptionResponse
+    SharePrescriptionRequest, SharePrescriptionResponse, SharedPrescriptionResponse,
+    PrescriptionFeedbackRequest, PrescriptionFeedbackResponse
 )
 from app.rag_pipeline import RAGPipeline
 from app.document_processor import DocumentProcessor
@@ -1613,6 +1614,52 @@ async def get_shared_prescription(share_id: str):
     except Exception as e:
         logger.error(f"Error getting shared prescription: {e}")
         raise HTTPException(status_code=500, detail=f"Error getting shared prescription: {str(e)}")
+
+@app.post("/api/prescription-feedback", response_model=PrescriptionFeedbackResponse)
+async def save_prescription_feedback(request: PrescriptionFeedbackRequest):
+    """Save feedback (like/dislike) for a prescription."""
+    try:
+        # Validate feedback value
+        if request.feedback not in ['like', 'dislike', None]:
+            raise HTTPException(status_code=400, detail="Feedback must be 'like', 'dislike', or null")
+        
+        # Save feedback to database
+        if hasattr(rag_pipeline, 'vector_store') and hasattr(rag_pipeline.vector_store, 'save_prescription_feedback'):
+            success = rag_pipeline.vector_store.save_prescription_feedback(
+                share_id=request.share_id,
+                feedback=request.feedback
+            )
+            
+            if success:
+                feedback_msg = "removed" if request.feedback is None else "saved"
+                return PrescriptionFeedbackResponse(
+                    success=True,
+                    message=f"Feedback {feedback_msg} successfully",
+                    share_id=request.share_id,
+                    feedback=request.feedback
+                )
+            else:
+                raise HTTPException(status_code=404, detail="Prescription not found or could not save feedback")
+        else:
+            raise HTTPException(status_code=500, detail="Prescription feedback feature not available")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error saving prescription feedback: {e}")
+        raise HTTPException(status_code=500, detail=f"Error saving prescription feedback: {str(e)}")
+
+@app.get("/api/prescription-feedback/{share_id}")
+async def get_prescription_feedback(share_id: str):
+    """Get feedback for a prescription."""
+    try:
+        if hasattr(rag_pipeline, 'vector_store') and hasattr(rag_pipeline.vector_store, 'get_prescription_feedback'):
+            feedback = rag_pipeline.vector_store.get_prescription_feedback(share_id)
+            return {"share_id": share_id, "feedback": feedback}
+        else:
+            raise HTTPException(status_code=500, detail="Prescription feedback feature not available")
+    except Exception as e:
+        logger.error(f"Error getting prescription feedback: {e}")
+        raise HTTPException(status_code=500, detail=f"Error getting prescription feedback: {str(e)}")
 
 @app.exception_handler(Exception)
 async def global_exception_handler(request, exc):

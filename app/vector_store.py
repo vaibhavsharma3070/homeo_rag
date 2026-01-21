@@ -171,6 +171,7 @@ class PGVectorStore:
             id = Column(Integer, primary_key=True, autoincrement=True)
             share_id = Column(String(64), unique=True, nullable=False, index=True)
             prescription_content = Column(Text, nullable=False)
+            feedback = Column(String(16), nullable=True)  # 'like', 'dislike', or NULL
             created_at = Column(Integer, nullable=False, default=lambda: int(time.time()))
 
         self.SharedPrescriptionORM = SharedPrescriptionORM
@@ -242,6 +243,22 @@ class PGVectorStore:
                     logger.info("Added user_id column to chat_messages table")
         except Exception as e:
             logger.warning(f"Could not add user_id column (may already exist): {e}")
+        
+        # Migration: Add feedback column to shared_prescriptions table if it doesn't exist
+        try:
+            with self.SessionLocal() as session:
+                result = session.execute(text("""
+                    SELECT column_name 
+                    FROM information_schema.columns 
+                    WHERE table_name='shared_prescriptions' AND column_name='feedback'
+                """))
+                if result.fetchone() is None:
+                    # Add feedback column (nullable)
+                    session.execute(text("ALTER TABLE shared_prescriptions ADD COLUMN feedback VARCHAR(16)"))
+                    session.commit()
+                    logger.info("Added feedback column to shared_prescriptions table")
+        except Exception as e:
+            logger.warning(f"Could not add feedback column (may already exist): {e}")
 
     def save_chat_message(self, session_id: str, role: str, message: str, user_id: Optional[int] = None) -> Dict[str, Any]:
         """Persist a chat message with optional embedding."""
@@ -381,11 +398,48 @@ class PGVectorStore:
                 if prescription:
                     return {
                         "prescription_content": prescription.prescription_content,
-                        "created_at": prescription.created_at
+                        "created_at": prescription.created_at,
+                        "feedback": prescription.feedback if hasattr(prescription, 'feedback') else None
                     }
                 return None
         except Exception as e:
             logger.error(f"Error getting shared prescription: {e}")
+            return None
+    
+    def save_prescription_feedback(self, share_id: str, feedback: Optional[str]) -> bool:
+        """Save feedback (like/dislike/None) for a prescription."""
+        try:
+            if feedback not in ['like', 'dislike', None]:
+                logger.warning(f"Invalid feedback value: {feedback}")
+                return False
+            
+            with self.SessionLocal() as db:
+                prescription = db.query(self.SharedPrescriptionORM).filter_by(share_id=share_id).first()
+                
+                if prescription:
+                    prescription.feedback = feedback
+                    db.commit()
+                    action = "removed" if feedback is None else f"set to {feedback}"
+                    logger.info(f"Prescription feedback {action}: {share_id}")
+                    return True
+                else:
+                    logger.warning(f"Prescription not found: {share_id}")
+                    return False
+        except Exception as e:
+            logger.error(f"Error saving prescription feedback: {e}")
+            return False
+    
+    def get_prescription_feedback(self, share_id: str) -> Optional[str]:
+        """Get feedback for a prescription."""
+        try:
+            with self.SessionLocal() as db:
+                prescription = db.query(self.SharedPrescriptionORM).filter_by(share_id=share_id).first()
+                
+                if prescription and hasattr(prescription, 'feedback'):
+                    return prescription.feedback
+                return None
+        except Exception as e:
+            logger.error(f"Error getting prescription feedback: {e}")
             return None
 
     def get_all_chat_sessions(self, user_id: Optional[int] = None) -> List[Dict[str, Any]]:

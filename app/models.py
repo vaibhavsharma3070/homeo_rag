@@ -166,3 +166,16 @@ class SharedPrescriptionResponse(BaseModel):
     prescription_content: str
     created_at: datetime
     timestamp: datetime = Field(default_factory=datetime.now)
+
+class PrescriptionFeedbackRequest(BaseModel):
+    """Request model for prescription feedback (like/dislike)."""
+    share_id: str = Field(..., description="The prescription share ID")
+    feedback: Optional[str] = Field(..., description="Feedback: 'like', 'dislike', or null to remove")
+
+class PrescriptionFeedbackResponse(BaseModel):
+    """Response model for prescription feedback."""
+    success: bool
+    message: str
+    share_id: str
+    feedback: Optional[str]
+    timestamp: datetime = Field(default_factory=datetime.now)

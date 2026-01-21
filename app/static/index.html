@@ -227,34 +227,40 @@
             position: absolute;
             top: 8px;
             right: 8px;
-            background: none;
-            border: none;
+            background: rgba(42, 42, 42, 0.6);
+            border: 1px solid #3a3a3a;
+            border-radius: 6px;
             color: #9ca3af;
-            padding: 4px;
+            padding: 6px 8px;
             cursor: pointer;
-            font-size: 1.1rem;
             transition: all 0.2s ease;
             opacity: 0;
             pointer-events: none;
             display: flex;
             align-items: center;
             justify-content: center;
-            width: 24px;
-            height: 24px;
+            backdrop-filter: blur(4px);
+        }
+        .copy-btn svg {
+            width: 16px;
+            height: 16px;
         }
         .bubble.ai:hover .copy-btn {
             opacity: 1;
             pointer-events: auto;
-            color: #e5e7eb;
         }
         .copy-btn:hover {
-            color: #ffffff;
-            transform: scale(1.1);
+            background: rgba(16, 163, 127, 0.15);
+            border-color: #10a37f;
+            color: #10a37f;
+            transform: translateY(-1px);
         }
         .copy-btn:active {
-            transform: scale(0.95);
+            transform: translateY(0);
         }
         .copy-btn.copied {
+            background: rgba(16, 163, 127, 0.2);
+            border-color: #10a37f;
             color: #10a37f;
             opacity: 1;
             pointer-events: auto;
@@ -497,10 +503,16 @@
             overflow-wrap: break-word;
             position: relative;
         }
-        .prescription-download-btn {
+        .prescription-actions {
             position: absolute;
-            top: 12px;
+            bottom: 12px;
             right: 12px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            transition: all 0.2s ease;
+        }
+        .prescription-download-btn {
             background: rgba(42, 42, 42, 0.6);
             border: 1px solid #3a3a3a;
             border-radius: 6px;
@@ -509,16 +521,10 @@
             cursor: pointer;
             font-size: 0.9rem;
             transition: all 0.2s ease;
-            opacity: 0;
-            pointer-events: none;
             display: flex;
             align-items: center;
             gap: 6px;
             backdrop-filter: blur(4px);
-        }
-        .prescription-container:hover .prescription-download-btn {
-            opacity: 1;
-            pointer-events: auto;
         }
         .prescription-download-btn:hover {
             background: rgba(16, 163, 127, 0.15);
@@ -533,8 +539,58 @@
             background: rgba(16, 163, 127, 0.2);
             border-color: #10a37f;
             color: #10a37f;
-            opacity: 1;
-            pointer-events: auto;
+        }
+        .prescription-feedback-btns {
+            display: flex;
+            gap: 4px;
+        }
+        .prescription-feedback-btn {
+            background: rgba(42, 42, 42, 0.6);
+            border: 1px solid #3a3a3a;
+            border-radius: 6px;
+            color: #9ca3af;
+            padding: 6px 8px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            backdrop-filter: blur(4px);
+        }
+        .prescription-feedback-btn svg {
+            width: 16px;
+            height: 16px;
+        }
+        .prescription-like-btn:hover {
+            background: rgba(34, 197, 94, 0.15);
+            border-color: #22c55e;
+            color: #22c55e;
+            transform: translateY(-1px);
+        }
+        .prescription-like-btn.active {
+            background: rgba(34, 197, 94, 0.25);
+            border-color: #22c55e;
+            color: #22c55e;
+        }
+        .prescription-like-btn.active svg {
+            fill: #22c55e;
+        }
+        .prescription-dislike-btn:hover {
+            background: rgba(239, 68, 68, 0.15);
+            border-color: #ef4444;
+            color: #ef4444;
+            transform: translateY(-1px);
+        }
+        .prescription-dislike-btn.active {
+            background: rgba(239, 68, 68, 0.25);
+            border-color: #ef4444;
+            color: #ef4444;
+        }
+        .prescription-dislike-btn.active svg {
+            fill: #ef4444;
+        }
+        .prescription-feedback-btn:active {
+            transform: translateY(0);
         }
         .prescription-header {
             border-bottom: 1px solid #4a4a4a;
@@ -4015,14 +4071,28 @@
             const prescriptionId = 'prescription-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9);
             
             let html = `<div class="prescription-container" id="${prescriptionId}">`;
-            html += `<button class="prescription-download-btn" onclick="downloadPrescription('${prescriptionId}')" title="Download prescription">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-                    <polyline points="7 10 12 15 17 10"></polyline>
-                    <line x1="12" y1="15" x2="12" y2="3"></line>
-                </svg>
-                <span>Download</span>
-            </button>`;
+            html += `<div class="prescription-actions">
+                <button class="prescription-download-btn" onclick="downloadPrescription('${prescriptionId}')" title="Download prescription">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                        <polyline points="7 10 12 15 17 10"></polyline>
+                        <line x1="12" y1="15" x2="12" y2="3"></line>
+                    </svg>
+                    <span>Download</span>
+                </button>
+                <div class="prescription-feedback-btns">
+                    <button class="prescription-feedback-btn prescription-like-btn" id="like-btn-${prescriptionId}" onclick="handlePrescriptionFeedback('${prescriptionId}', 'like')" title="Like this prescription">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3zM7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3"></path>
+                        </svg>
+                    </button>
+                    <button class="prescription-feedback-btn prescription-dislike-btn" id="dislike-btn-${prescriptionId}" onclick="handlePrescriptionFeedback('${prescriptionId}', 'dislike')" title="Dislike this prescription">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M10 15v4a3 3 0 0 0 3 3l4-9V2H5.72a2 2 0 0 0-2 1.7l-1.38 9a2 2 0 0 0 2 2.3zm7-13h2.67A2.31 2.31 0 0 1 22 4v7a2.31 2.31 0 0 1-2.33 2H17"></path>
+                        </svg>
+                    </button>
+                </div>
+            </div>`;
             let currentSection = '';
             let inRxSection = false;
             let inAdviceSection = false;
@@ -4157,7 +4227,10 @@
                     : formatPrescription(m.text || '');
                 const copyButton = m.role === 'ai' && !isTyping && m.text ? `
                     <button class="copy-btn" id="copy-btn-${idx}" onclick="copyToClipboard(${idx})" title="Copy response">
-                        📋
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                        </svg>
                     </button>
                 ` : '';
                 return `
@@ -4192,7 +4265,11 @@
                 const copyBtn = document.getElementById(`copy-btn-${idx}`);
                 if (copyBtn) {
                     const originalIcon = copyBtn.innerHTML;
-                    copyBtn.innerHTML = '✓';
+                    copyBtn.innerHTML = `
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <polyline points="20 6 9 17 4 12"></polyline>
+                        </svg>
+                    `;
                     copyBtn.classList.add('copied');
                     
                     // Reset after 2 seconds
@@ -4219,7 +4296,11 @@
                     const copyBtn = document.getElementById(`copy-btn-${idx}`);
                     if (copyBtn) {
                         const originalIcon = copyBtn.innerHTML;
-                        copyBtn.innerHTML = '✓';
+                        copyBtn.innerHTML = `
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <polyline points="20 6 9 17 4 12"></polyline>
+                            </svg>
+                        `;
                         copyBtn.classList.add('copied');
                         setTimeout(() => {
                             copyBtn.innerHTML = originalIcon;
@@ -4236,8 +4317,16 @@
         // Helper function to extract prescription text with proper line breaks
         function extractPrescriptionText(prescriptionElement) {
             const clonedElement = prescriptionElement.cloneNode(true);
+            
+            // Remove action buttons
+            const clonedActions = clonedElement.querySelector('.prescription-actions');
+            if (clonedActions) clonedActions.remove();
+            
             const clonedDownloadBtn = clonedElement.querySelector('.prescription-download-btn');
             if (clonedDownloadBtn) clonedDownloadBtn.remove();
+            
+            const clonedFeedbackBtns = clonedElement.querySelector('.prescription-feedback-btns');
+            if (clonedFeedbackBtns) clonedFeedbackBtns.remove();
             
             let text = '';
             
@@ -4334,6 +4423,9 @@
                 
                 const data = await response.json();
                 
+                // Store share_id for feedback functionality
+                prescriptionElement.dataset.shareId = data.share_id;
+                
                 // Generate full URL
                 const shareUrl = window.location.origin + data.share_url;
                 
@@ -4383,6 +4475,110 @@
                         downloadButton.innerHTML = originalHTML;
                     }, 2000);
                 }
+            }
+        }
+
+        async function handlePrescriptionFeedback(prescriptionId, feedback) {
+            const prescriptionElement = document.getElementById(prescriptionId);
+            if (!prescriptionElement) {
+                console.error('Prescription element not found:', prescriptionId);
+                return;
+            }
+            
+            const likeBtn = document.getElementById(`like-btn-${prescriptionId}`);
+            const dislikeBtn = document.getElementById(`dislike-btn-${prescriptionId}`);
+            
+            if (!likeBtn || !dislikeBtn) {
+                console.error('Feedback buttons not found for:', prescriptionId);
+                return;
+            }
+            
+            // Check if the clicked button is already active (toggle off)
+            const isLikeActive = likeBtn.classList.contains('active');
+            const isDislikeActive = dislikeBtn.classList.contains('active');
+            
+            console.log(`Before click - Like active: ${isLikeActive}, Dislike active: ${isDislikeActive}, Clicked: ${feedback}`);
+            
+            let feedbackToSend = feedback;
+            if ((feedback === 'like' && isLikeActive) || (feedback === 'dislike' && isDislikeActive)) {
+                // If clicking the same button, remove feedback
+                feedbackToSend = null;
+                console.log('Toggling off - removing feedback');
+            }
+            
+            // Check if prescription has been shared (has a share_id)
+            let shareId = prescriptionElement.dataset.shareId;
+            
+            if (!shareId) {
+                // If not yet shared, create a share first
+                try {
+                    const prescriptionText = extractPrescriptionText(prescriptionElement);
+                    const response = await fetch('/api/share-prescription', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({
+                            prescription_content: prescriptionText
+                        })
+                    });
+                    
+                    if (!response.ok) {
+                        throw new Error('Failed to create share link');
+                    }
+                    
+                    const data = await response.json();
+                    shareId = data.share_id;
+                    prescriptionElement.dataset.shareId = shareId;
+                    console.log('Created share ID:', shareId);
+                } catch (error) {
+                    console.error('Failed to share prescription:', error);
+                    return;
+                }
+            }
+            
+            // Send feedback to backend
+            try {
+                console.log('Sending feedback to server:', feedbackToSend);
+                const response = await fetch('/api/prescription-feedback', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        share_id: shareId,
+                        feedback: feedbackToSend
+                    })
+                });
+                
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    console.error('Server error:', errorData);
+                    throw new Error('Failed to save feedback');
+                }
+                
+                const result = await response.json();
+                console.log('Server response:', result);
+                
+                // Update button states
+                if (feedbackToSend === null) {
+                    // Remove all active states
+                    likeBtn.classList.remove('active');
+                    dislikeBtn.classList.remove('active');
+                    console.log('Removed all active states');
+                } else if (feedbackToSend === 'like') {
+                    likeBtn.classList.add('active');
+                    dislikeBtn.classList.remove('active');
+                    console.log('Set like as active');
+                } else if (feedbackToSend === 'dislike') {
+                    dislikeBtn.classList.add('active');
+                    likeBtn.classList.remove('active');
+                    console.log('Set dislike as active');
+                }
+                
+                console.log(`Prescription feedback updated: ${feedbackToSend}`);
+            } catch (error) {
+                console.error('Failed to save prescription feedback:', error);
             }
         }
 
