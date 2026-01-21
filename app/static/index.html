@@ -495,6 +495,46 @@
             word-wrap: break-word;
             white-space: pre-wrap;
             overflow-wrap: break-word;
+            position: relative;
+        }
+        .prescription-download-btn {
+            position: absolute;
+            top: 12px;
+            right: 12px;
+            background: rgba(42, 42, 42, 0.6);
+            border: 1px solid #3a3a3a;
+            border-radius: 6px;
+            color: #9ca3af;
+            padding: 6px 10px;
+            cursor: pointer;
+            font-size: 0.9rem;
+            transition: all 0.2s ease;
+            opacity: 0;
+            pointer-events: none;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            backdrop-filter: blur(4px);
+        }
+        .prescription-container:hover .prescription-download-btn {
+            opacity: 1;
+            pointer-events: auto;
+        }
+        .prescription-download-btn:hover {
+            background: rgba(16, 163, 127, 0.15);
+            border-color: #10a37f;
+            color: #10a37f;
+            transform: translateY(-1px);
+        }
+        .prescription-download-btn:active {
+            transform: translateY(0);
+        }
+        .prescription-download-btn.opened {
+            background: rgba(16, 163, 127, 0.2);
+            border-color: #10a37f;
+            color: #10a37f;
+            opacity: 1;
+            pointer-events: auto;
         }
         .prescription-header {
             border-bottom: 1px solid #4a4a4a;
@@ -3971,7 +4011,18 @@
             
             console.log('Lines after processing:', lines.length);
             
-            let html = '<div class="prescription-container">';
+            // Generate a unique ID for this prescription
+            const prescriptionId = 'prescription-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9);
+            
+            let html = `<div class="prescription-container" id="${prescriptionId}">`;
+            html += `<button class="prescription-download-btn" onclick="downloadPrescription('${prescriptionId}')" title="Download prescription">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                    <polyline points="7 10 12 15 17 10"></polyline>
+                    <line x1="12" y1="15" x2="12" y2="3"></line>
+                </svg>
+                <span>Download</span>
+            </button>`;
             let currentSection = '';
             let inRxSection = false;
             let inAdviceSection = false;
@@ -4179,6 +4230,159 @@
                     console.error('Failed to copy:', e);
                 }
                 document.body.removeChild(textArea);
+            }
+        }
+
+        // Helper function to extract prescription text with proper line breaks
+        function extractPrescriptionText(prescriptionElement) {
+            const clonedElement = prescriptionElement.cloneNode(true);
+            const clonedDownloadBtn = clonedElement.querySelector('.prescription-download-btn');
+            if (clonedDownloadBtn) clonedDownloadBtn.remove();
+            
+            let text = '';
+            
+            // Extract date
+            const dateEl = clonedElement.querySelector('.prescription-date');
+            if (dateEl) text += dateEl.textContent.trim() + '\n';
+            
+            // Extract patient
+            const patientEl = clonedElement.querySelector('.prescription-patient');
+            if (patientEl) text += patientEl.textContent.trim() + '\n';
+            
+            // Extract chief complaint
+            const complaintEl = clonedElement.querySelector('.prescription-complaint');
+            if (complaintEl) text += complaintEl.textContent.trim() + '\n';
+            
+            // Extract all sections
+            const sections = clonedElement.querySelectorAll('.prescription-section');
+            sections.forEach(section => {
+                // Section title
+                const titleEl = section.querySelector('.prescription-section-title');
+                if (titleEl) {
+                    text += '\n' + titleEl.textContent.trim() + '\n';
+                }
+                
+                // Rx items
+                const rxItems = section.querySelectorAll('.prescription-rx-item');
+                rxItems.forEach(item => {
+                    const mainEl = item.querySelector('.prescription-rx-main');
+                    if (mainEl) text += mainEl.textContent.trim() + '\n';
+                    
+                    const instrEl = item.querySelector('.prescription-rx-instructions');
+                    if (instrEl) text += instrEl.textContent.trim() + '\n';
+                });
+                
+                // Advice items
+                const adviceList = section.querySelector('.prescription-advice-list');
+                if (adviceList) {
+                    const items = adviceList.querySelectorAll('li');
+                    items.forEach(item => {
+                        text += item.textContent.trim() + '\n';
+                    });
+                }
+                
+                // Modalities
+                const modalities = section.querySelectorAll('.prescription-modality-item');
+                modalities.forEach(item => {
+                    text += item.textContent.trim() + '\n';
+                });
+            });
+            
+            // Extract signature
+            const signatureEl = clonedElement.querySelector('.prescription-signature');
+            if (signatureEl) text += '\n' + signatureEl.textContent.trim();
+            
+            return text.trim();
+        }
+
+        async function downloadPrescription(prescriptionId) {
+            const prescriptionElement = document.getElementById(prescriptionId);
+            if (!prescriptionElement) return;
+            
+            const downloadButton = prescriptionElement.querySelector('.prescription-download-btn');
+            const originalHTML = downloadButton ? downloadButton.innerHTML : '';
+            
+            try {
+                // Show loading state
+                if (downloadButton) {
+                    downloadButton.innerHTML = `
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <circle cx="12" cy="12" r="10" opacity="0.3"></circle>
+                        </svg>
+                        <span>Generating...</span>
+                    `;
+                    downloadButton.disabled = true;
+                }
+                
+                // Get the text content of the prescription with proper line breaks
+                const prescriptionText = extractPrescriptionText(prescriptionElement);
+                
+                // Send to backend to create shareable link
+                const response = await fetch('/api/share-prescription', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        prescription_content: prescriptionText
+                    })
+                });
+                
+                if (!response.ok) {
+                    throw new Error('Failed to create share link');
+                }
+                
+                const data = await response.json();
+                
+                // Generate full URL
+                const shareUrl = window.location.origin + data.share_url;
+                
+                // Copy to clipboard
+                try {
+                    await navigator.clipboard.writeText(shareUrl);
+                } catch (e) {
+                    console.log('Could not copy to clipboard:', e);
+                }
+                
+                // Open in new tab
+                window.open(shareUrl, '_blank');
+                
+                // Update button to show success state
+                if (downloadButton) {
+                    downloadButton.innerHTML = `
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <polyline points="20 6 9 17 4 12"></polyline>
+                        </svg>
+                        <span>Opened!</span>
+                    `;
+                    downloadButton.classList.add('opened');
+                    downloadButton.disabled = false;
+                    
+                    // Reset after 2 seconds
+                    setTimeout(() => {
+                        downloadButton.innerHTML = originalHTML;
+                        downloadButton.classList.remove('opened');
+                    }, 2000);
+                }
+            } catch (err) {
+                console.error('Failed to download prescription:', err);
+                
+                // Show error state
+                if (downloadButton) {
+                    downloadButton.innerHTML = `
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <circle cx="12" cy="12" r="10"></circle>
+                            <line x1="15" y1="9" x2="9" y2="15"></line>
+                            <line x1="9" y1="9" x2="15" y2="15"></line>
+                        </svg>
+                        <span>Failed</span>
+                    `;
+                    downloadButton.disabled = false;
+                    
+                    setTimeout(() => {
+                        downloadButton.innerHTML = originalHTML;
+                    }, 2000);
+                }
             }
         }
 

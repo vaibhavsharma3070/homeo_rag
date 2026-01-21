@@ -24,7 +24,8 @@ from app.models import (
     QueryRequest, QueryResponse, SearchRequest, SearchResponse,
     DocumentListResponse, IngestionResponse, StatsResponse, 
     LLMTestResponse, ErrorResponse, ChatSessionResponse, ChatHistoryResponse, ChatMessage,
-    ChatSessionsListResponse, ChatSessionInfo, LoginRequest, LoginResponse, RegisterRequest, UserInfo
+    ChatSessionsListResponse, ChatSessionInfo, LoginRequest, LoginResponse, RegisterRequest, UserInfo,
+    SharePrescriptionRequest, SharePrescriptionResponse, SharedPrescriptionResponse
 )
 from app.rag_pipeline import RAGPipeline
 from app.document_processor import DocumentProcessor
@@ -251,6 +252,15 @@ async def serve_ui():
                 "weblink": "/api/weblink - Scrape and ingest web content"
             }
         }
+
+@app.get("/shared/{share_id}")
+async def serve_shared_prescription(share_id: str):
+    """Serve the shared prescription viewer page."""
+    shared_file = static_dir / "shared.html"
+    if shared_file.exists():
+        return FileResponse(str(shared_file))
+    else:
+        raise HTTPException(status_code=404, detail="Shared prescription viewer not found")
 
 @app.get("/health", tags=["Health"])
 async def health_check():
@@ -1549,6 +1559,60 @@ async def benchmark_ingestion():
     except Exception as e:
         logger.error(f"Error running benchmark: {e}")
         raise HTTPException(status_code=500, detail=f"Error running benchmark: {str(e)}")
+
+@app.post("/api/share-prescription", response_model=SharePrescriptionResponse)
+async def share_prescription(request: SharePrescriptionRequest):
+    """Create a shareable link for a prescription."""
+    try:
+        # Generate a unique share ID
+        import secrets
+        share_id = secrets.token_urlsafe(16)
+        
+        # Save to database
+        if hasattr(rag_pipeline, 'vector_store') and hasattr(rag_pipeline.vector_store, 'save_shared_prescription'):
+            success = rag_pipeline.vector_store.save_shared_prescription(
+                share_id=share_id,
+                prescription_content=request.prescription_content
+            )
+            
+            if success:
+                # Generate the share URL - use relative path
+                share_url = f"/shared/{share_id}"
+                
+                return SharePrescriptionResponse(
+                    success=True,
+                    share_id=share_id,
+                    share_url=share_url
+                )
+            else:
+                raise HTTPException(status_code=500, detail="Failed to save shared prescription")
+        else:
+            raise HTTPException(status_code=500, detail="Shared prescription feature not available")
+    except Exception as e:
+        logger.error(f"Error creating shared prescription: {e}")
+        raise HTTPException(status_code=500, detail=f"Error creating shared prescription: {str(e)}")
+
+@app.get("/api/shared-prescription/{share_id}", response_model=SharedPrescriptionResponse)
+async def get_shared_prescription(share_id: str):
+    """Get a shared prescription by ID."""
+    try:
+        if hasattr(rag_pipeline, 'vector_store') and hasattr(rag_pipeline.vector_store, 'get_shared_prescription'):
+            prescription_data = rag_pipeline.vector_store.get_shared_prescription(share_id)
+            
+            if prescription_data:
+                return SharedPrescriptionResponse(
+                    prescription_content=prescription_data['prescription_content'],
+                    created_at=datetime.fromtimestamp(prescription_data['created_at'])
+                )
+            else:
+                raise HTTPException(status_code=404, detail="Shared prescription not found")
+        else:
+            raise HTTPException(status_code=500, detail="Shared prescription feature not available")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting shared prescription: {e}")
+        raise HTTPException(status_code=500, detail=f"Error getting shared prescription: {str(e)}")
 
 @app.exception_handler(Exception)
 async def global_exception_handler(request, exc):

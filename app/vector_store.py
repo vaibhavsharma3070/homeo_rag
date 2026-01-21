@@ -164,6 +164,17 @@ class PGVectorStore:
 
         self.UserPersonalizationORM = UserPersonalizationORM
 
+        class SharedPrescriptionORM(Base):
+            __tablename__ = "shared_prescriptions"
+            __table_args__ = {"extend_existing": True}
+
+            id = Column(Integer, primary_key=True, autoincrement=True)
+            share_id = Column(String(64), unique=True, nullable=False, index=True)
+            prescription_content = Column(Text, nullable=False)
+            created_at = Column(Integer, nullable=False, default=lambda: int(time.time()))
+
+        self.SharedPrescriptionORM = SharedPrescriptionORM
+
     def _setup_database(self):
         """Setup database with vector extension and tables."""
         try:
@@ -342,6 +353,39 @@ class PGVectorStore:
                 return None
         except Exception as e:
             logger.error(f"Error getting personalization: {e}")
+            return None
+
+    def save_shared_prescription(self, share_id: str, prescription_content: str) -> bool:
+        """Save a shared prescription."""
+        try:
+            with self.SessionLocal() as db:
+                shared_prescription = self.SharedPrescriptionORM(
+                    share_id=share_id,
+                    prescription_content=prescription_content,
+                    created_at=int(time.time())
+                )
+                db.add(shared_prescription)
+                db.commit()
+                logger.info(f"Shared prescription saved with ID: {share_id}")
+                return True
+        except Exception as e:
+            logger.error(f"Error saving shared prescription: {e}")
+            return False
+
+    def get_shared_prescription(self, share_id: str) -> Optional[Dict[str, Any]]:
+        """Get a shared prescription by ID."""
+        try:
+            with self.SessionLocal() as db:
+                prescription = db.query(self.SharedPrescriptionORM).filter_by(share_id=share_id).first()
+                
+                if prescription:
+                    return {
+                        "prescription_content": prescription.prescription_content,
+                        "created_at": prescription.created_at
+                    }
+                return None
+        except Exception as e:
+            logger.error(f"Error getting shared prescription: {e}")
             return None
 
     def get_all_chat_sessions(self, user_id: Optional[int] = None) -> List[Dict[str, Any]]:

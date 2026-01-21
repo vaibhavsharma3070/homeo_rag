@@ -149,3 +149,20 @@ class PersonalizationResponse(BaseModel):
     more_about_you: str
     base_style_tone: str
     updated_at: Optional[int] = None
+
+class SharePrescriptionRequest(BaseModel):
+    """Request model for sharing a prescription."""
+    prescription_content: str = Field(..., description="The prescription content to share")
+
+class SharePrescriptionResponse(BaseModel):
+    """Response model for sharing a prescription."""
+    success: bool
+    share_id: str
+    share_url: str
+    timestamp: datetime = Field(default_factory=datetime.now)
+
+class SharedPrescriptionResponse(BaseModel):
+    """Response model for retrieving a shared prescription."""
+    prescription_content: str
+    created_at: datetime
+    timestamp: datetime = Field(default_factory=datetime.now)
