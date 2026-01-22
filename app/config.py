@@ -2,10 +2,9 @@ from typing import Optional
 from pydantic_settings import BaseSettings
 
 class Settings(BaseSettings):
-    # LLM Configuration
-    llm_provider: str
-    ollama_base_url: str
-    ollama_model: str
+    # LLM Configuration (Gemini)
+    gemini_api_key: str
+    gemini_model: str
     
     # Vector Store Configuration
     vector_backend: str
@@ -38,9 +37,6 @@ class Settings(BaseSettings):
     # Celery / Task Queue
     celery_broker_url: str
     celery_result_backend: str
-
-    gemini_api_key:str
-    gemini_model:str
 
     class Config:
         env_file = ".env"
