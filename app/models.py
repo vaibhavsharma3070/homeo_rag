@@ -16,6 +16,7 @@ class QueryResponse(BaseModel):
     sources: List[Dict[str, Any]]
     confidence: str
     metadata: Dict[str, Any]
+    prescription_content: Optional[str] = Field(default=None, description="Extracted prescription content if present in the answer")
     timestamp: datetime = Field(default_factory=datetime.now)
 
 class SearchRequest(BaseModel):

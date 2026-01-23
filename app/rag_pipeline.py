@@ -546,6 +546,15 @@ Classification:"""
         system_parts.append(f"\n## Knowledge Base:\n{context_block}")
         system_parts.append(f"\n## User Question:\n{query}")
         system_parts.append(f"""
+    ## 🔴 CRITICAL: DO NOT ASK REPETITIVE QUESTIONS 🔴
+    **EXTREMELY IMPORTANT:**
+    - Check Recent Conversation BEFORE asking any question
+    - NEVER ask the same question twice in one chat session
+    - If user mentions symptoms (pain, fever, etc.), gather info efficiently in ONE question maximum
+    - DO NOT repeat questions about location, duration, sensation, modalities, or intensity already discussed
+    - If sufficient symptom info exists in conversation history, PROCEED DIRECTLY to remedy recommendation
+    - Asking repetitive questions is unprofessional and frustrates users
+    
     ## Instructions:
     - If the question uses pronouns (he/she/it/they/this/that), check Recent Conversation to understand the reference
     - Answer based on the Knowledge Base information
@@ -690,13 +699,45 @@ Response:"""
         metadata['avg_relevance_score'] = metadata.get('avg_relevance_score', 0.0)
         metadata['llm_provider'] = self.llm_connector.__class__.__name__
         
+        # Extract prescription content if present
+        prescription_content = None
+        has_prescription = False
+        
+        if '---PRESCRIPTION---' in answer and '---END PRESCRIPTION---' in answer:
+            has_prescription = True
+            try:
+                # Extract content between markers
+                import re
+                prescription_match = re.search(
+                    r'---PRESCRIPTION---(.*?)---END PRESCRIPTION---', 
+                    answer, 
+                    re.DOTALL
+                )
+                if prescription_match:
+                    prescription_content = prescription_match.group(1).strip()
+                    metadata['prescription_extracted'] = True
+                    logger.info(f"Prescription extracted successfully (length: {len(prescription_content)} chars)")
+                else:
+                    metadata['prescription_extracted'] = False
+                    logger.warning("Prescription markers found but extraction failed")
+            except Exception as e:
+                logger.error(f"Error extracting prescription: {e}")
+                metadata['prescription_extracted'] = False
+                metadata['prescription_extraction_error'] = str(e)
+        else:
+            metadata['prescription_extracted'] = False
+        
+        # Add prescription metadata flags
+        metadata['has_prescription'] = has_prescription
+        
         return {
             'query': query,
             'answer': answer,
             'context_used': context,
             'sources': sources,
             'confidence': confidence,
-            'metadata': metadata
+            'metadata': metadata,
+            'prescription_content': prescription_content
         }
 
     # Utility methods
