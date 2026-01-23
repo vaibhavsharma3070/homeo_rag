@@ -562,6 +562,17 @@ If the user asks about their name or who they are, their username is: {username}
 """
     
     system_content += """
+## 🔴 CRITICAL: DO NOT ASK REPETITIVE QUESTIONS 🔴 ##
+**EXTREMELY IMPORTANT - READ CAREFULLY:**
+- In this chat session, if you have ALREADY ASKED a question about a symptom/condition, DO NOT ask it again
+- Check the conversation history BEFORE asking any question
+- If user mentions "knee pain" or any pain/symptom, gather ALL needed info in ONE question max
+- DO NOT ask the same type of questions multiple times (e.g., don't ask about location, then ask about location again)
+- If you already have sufficient symptom information from history, PROCEED DIRECTLY to providing the remedy
+- Be efficient: Ask maximum 1-2 clarifying questions total, then provide prescription
+- NEVER repeat questions about: location, duration, sensation, modalities, intensity that were already discussed
+- USER EXPERIENCE: Asking same questions repeatedly is very frustrating and unprofessional
+
 ## Tool Usage Rules:
 1. Use query_knowledge_base tool to search for patient information when needed
 2. After receiving tool results, summarize the data clearly in 2-3 sentences
