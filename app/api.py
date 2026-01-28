@@ -1730,4 +1730,3 @@ async def apple_signin(request: AppleSignInRequest):
     except Exception as e:
         logger.error(f"Error during Apple Sign-In: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Error during Apple Sign-In: {str(e)}")
-

@@ -3,9 +3,6 @@ from pydantic_settings import BaseSettings
 
 class Settings(BaseSettings):
     # LLM Configuration
-    llm_provider: str
-    ollama_base_url: str
-    ollama_model: str
     
     # Vector Store Configuration
     vector_backend: str
