@@ -18,7 +18,7 @@ import requests
 from bs4 import BeautifulSoup
 from urllib.parse import urljoin, urlparse
 import re
-from jose import jwt
+from jose import jwt, jwk
 
 from app.models import (
     QueryRequest, QueryResponse, SearchRequest, SearchResponse,
@@ -26,7 +26,7 @@ from app.models import (
     LLMTestResponse, ErrorResponse, ChatSessionResponse, ChatHistoryResponse, ChatMessage,
     ChatSessionsListResponse, ChatSessionInfo, LoginRequest, LoginResponse, RegisterRequest, UserInfo,
     SharePrescriptionRequest, SharePrescriptionResponse, SharedPrescriptionResponse,
-    PrescriptionFeedbackRequest, PrescriptionFeedbackResponse
+    PrescriptionFeedbackRequest, PrescriptionFeedbackResponse, AppleSignInRequest, AppleSignInResponse
 )
 from app.rag_pipeline import RAGPipeline
 from app.document_processor import DocumentProcessor
@@ -1673,3 +1673,174 @@ async def global_exception_handler(request, exc):
             details={"exception": str(exc)}
         ).dict()
     )
+
+# Apple Sign-In
+APPLE_PUBLIC_KEYS_URL = "https://appleid.apple.com/auth/keys"
+APPLE_ISSUER = "https://appleid.apple.com"
+
+
+def get_apple_public_key(kid: str):
+    response = requests.get(APPLE_PUBLIC_KEYS_URL)
+    keys = response.json()["keys"]
+
+    for key in keys:
+        if key["kid"] == kid:
+            return jwk.construct(key)
+
+    return None
+
+
+@app.post("/api/auth/apple", response_model=AppleSignInResponse, tags=["Authentication"])
+async def apple_signin(request: AppleSignInRequest):
+    """Authenticate user with Apple Sign-In."""
+    try:
+        # Step 1: Verify the identity token from Apple
+        try:
+            unverified_header = jwt.get_unverified_header(request.identity_token)
+            key_id = unverified_header.get("kid")
+            if not key_id:
+                raise HTTPException(status_code=400, detail="Invalid Apple token: missing key id")
+
+            public_key = get_apple_public_key(key_id)
+            
+            if not public_key:
+                raise HTTPException(status_code=400, detail="Could not find matching Apple public key")
+
+            decoded_token = jwt.decode(
+                request.identity_token,
+                public_key,
+                algorithms=["RS256"],
+                audience=settings.apple_client_id,
+                issuer=APPLE_ISSUER,
+                options={"verify_exp": True},
+            )
+            
+
+            apple_user_id = decoded_token.get("sub")
+            
+            email = decoded_token.get("email")
+
+            if not apple_user_id:
+                raise HTTPException(status_code=400, detail="Invalid Apple token: missing user ID")
+
+            if not email and request.user_info:
+                email = request.user_info.get("email")
+
+            logger.info(f"Apple Sign-In: user_id={apple_user_id}, email={email}")
+
+        except jwt.ExpiredSignatureError:
+            raise HTTPException(status_code=400, detail="Apple token has expired")
+        except jwt.JWTError as e:
+            raise HTTPException(status_code=400, detail=f"Invalid Apple token: {str(e)}")
+        except Exception as e:
+            logger.error(f"Error verifying Apple token: {e}")
+            raise HTTPException(status_code=400, detail=f"Failed to verify Apple token: {str(e)}")
+        
+        # Step 2: Check if user exists in database
+        apple_email_identifier = f"apple_{apple_user_id}@apple.signin"
+        
+        if not hasattr(rag_pipeline, 'vector_store'):
+            raise HTTPException(status_code=500, detail="Authentication not available")
+        
+        with rag_pipeline.vector_store.SessionLocal() as db:
+            existing_user = db.query(rag_pipeline.vector_store.UserORM).filter_by(
+                email=apple_email_identifier
+            ).first()
+            
+            is_new_user = existing_user is None
+            
+            if existing_user:
+                # Existing user
+                user_dict = {
+                    "id": existing_user.id,
+                    "username": existing_user.username,
+                    "email": email if email else None,
+                    "role": getattr(existing_user, 'role', 'user'),
+                    "created_at": existing_user.created_at
+                }
+                
+                # Get personalization
+                try:
+                    admin_user = db.query(rag_pipeline.vector_store.UserORM).filter_by(role='admin').order_by(rag_pipeline.vector_store.UserORM.id.asc()).first()
+                    if admin_user:
+                        personalization = rag_pipeline.vector_store.get_user_personalization(admin_user.id)
+                        if personalization:
+                            user_dict.update(personalization)
+                except Exception as e:
+                    logger.warning(f"Could not load personalization: {e}")
+                
+                token = create_access_token(existing_user.username, existing_user.id)
+                
+                return AppleSignInResponse(
+                    success=True,
+                    message="Login successful",
+                    token=token,
+                    user=user_dict,
+                    is_new_user=False
+                )
+            else:
+                # New user - create account
+                import hashlib
+                import secrets
+                
+                # Generate username
+                if email:
+                    username_base = email.split('@')[0]
+                else:
+                    username_base = f"apple_user_{apple_user_id[:8]}"
+                
+                username = username_base
+                counter = 1
+                while db.query(rag_pipeline.vector_store.UserORM).filter_by(username=username).first():
+                    username = f"{username_base}_{counter}"
+                    counter += 1
+                
+                # Random password (won't be used)
+                random_password = secrets.token_urlsafe(32)
+                password_hash = hashlib.sha256(random_password.encode()).hexdigest()
+                
+                new_user = rag_pipeline.vector_store.UserORM(
+                    username=username,
+                    email=apple_email_identifier,
+                    password=password_hash,
+                    role='user'
+                )
+                db.add(new_user)
+                db.commit()
+                db.refresh(new_user)
+                
+                user_dict = {
+                    "id": new_user.id,
+                    "username": new_user.username,
+                    "email": email if email else None,
+                    "role": 'user',
+                    "created_at": new_user.created_at
+                }
+                
+                # Get personalization
+                try:
+                    admin_user = db.query(rag_pipeline.vector_store.UserORM).filter_by(role='admin').order_by(rag_pipeline.vector_store.UserORM.id.asc()).first()
+                    if admin_user:
+                        personalization = rag_pipeline.vector_store.get_user_personalization(admin_user.id)
+                        if personalization:
+                            user_dict.update(personalization)
+                except Exception as e:
+                    logger.warning(f"Could not load personalization: {e}")
+                
+                token = create_access_token(new_user.username, new_user.id)
+                
+                logger.info(f"Created new user from Apple Sign-In: {username}")
+                
+                return AppleSignInResponse(
+                    success=True,
+                    message="Account created successfully",
+                    token=token,
+                    user=user_dict,
+                    is_new_user=True
+                )
+                
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error during Apple Sign-In: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Error during Apple Sign-In: {str(e)}")

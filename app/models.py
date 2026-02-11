@@ -180,3 +180,17 @@ class PrescriptionFeedbackResponse(BaseModel):
     share_id: str
     feedback: Optional[str]
     timestamp: datetime = Field(default_factory=datetime.now)
+
+class AppleSignInRequest(BaseModel):
+    """Request model for Apple Sign-In authentication."""
+    identity_token: str = Field(..., description="Apple identity token")
+    user_info: Optional[Dict[str, Any]] = Field(default=None, description="Optional user info from Apple")
+
+class AppleSignInResponse(BaseModel):
+    """Response model for Apple Sign-In authentication."""
+    success: bool
+    message: str
+    token: str
+    user: Dict[str, Any]
+    is_new_user: bool
+    timestamp: datetime = Field(default_factory=datetime.now)

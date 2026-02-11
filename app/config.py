@@ -38,6 +38,11 @@ class Settings(BaseSettings):
     celery_broker_url: str
     celery_result_backend: str
 
+    apple_team_id: str
+    apple_client_id: str
+    apple_key_id: str
+    apple_private_key_path: str
+
     class Config:
         env_file = ".env"
 
