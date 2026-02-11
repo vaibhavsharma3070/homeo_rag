@@ -18,7 +18,7 @@ import requests
 from bs4 import BeautifulSoup
 from urllib.parse import urljoin, urlparse
 import re
-from jose import jwt
+from jose import jwt, jwk
 
 from app.models import (
     QueryRequest, QueryResponse, SearchRequest, SearchResponse,
@@ -62,7 +62,7 @@ def verify_token(token: str) -> Optional[Dict[str, Any]]:
         return payload
     except jwt.ExpiredSignatureError:
         return None
-    except jwt.InvalidTokenError:
+    except jwt.JWTError:
         return None
 
 async def get_current_user(credentials: Optional[HTTPAuthorizationCredentials] = Depends(security)) -> Optional[Dict[str, Any]]:
@@ -1562,61 +1562,63 @@ async def global_exception_handler(request, exc):
         ).dict()
     )
 
-# Apple auth
+# Apple Sign-In
+APPLE_PUBLIC_KEYS_URL = "https://appleid.apple.com/auth/keys"
+APPLE_ISSUER = "https://appleid.apple.com"
+
+
+def get_apple_public_key(kid: str):
+    response = requests.get(APPLE_PUBLIC_KEYS_URL)
+    keys = response.json()["keys"]
+
+    for key in keys:
+        if key["kid"] == kid:
+            return jwk.construct(key)
+
+    return None
+
 
 @app.post("/api/auth/apple", response_model=AppleSignInResponse, tags=["Authentication"])
 async def apple_signin(request: AppleSignInRequest):
     """Authenticate user with Apple Sign-In."""
     try:
-        import jwt
-        import requests
-        
         # Step 1: Verify the identity token from Apple
         try:
-            # Get Apple's public keys
-            apple_keys_url = "https://appleid.apple.com/auth/keys"
-            apple_keys_response = requests.get(apple_keys_url, timeout=10)
-            apple_keys = apple_keys_response.json()
-            
-            # Decode the token header to get the key ID
             unverified_header = jwt.get_unverified_header(request.identity_token)
-            key_id = unverified_header.get('kid')
-            
-            # Find the matching public key
-            public_key = None
-            for key in apple_keys.get('keys', []):
-                if key.get('kid') == key_id:
-                    public_key = jwt.algorithms.RSAAlgorithm.from_jwk(json.dumps(key))
-                    break
+            key_id = unverified_header.get("kid")
+            if not key_id:
+                raise HTTPException(status_code=400, detail="Invalid Apple token: missing key id")
+
+            public_key = get_apple_public_key(key_id)
             
             if not public_key:
                 raise HTTPException(status_code=400, detail="Could not find matching Apple public key")
-            
-            # Verify and decode the token
+
             decoded_token = jwt.decode(
                 request.identity_token,
                 public_key,
-                algorithms=['RS256'],
+                algorithms=["RS256"],
                 audience=settings.apple_client_id,
-                options={'verify_exp': True}
+                issuer=APPLE_ISSUER,
+                options={"verify_exp": True},
             )
             
-            # Extract user information
-            apple_user_id = decoded_token.get('sub')
-            email = decoded_token.get('email')
+
+            apple_user_id = decoded_token.get("sub")
             
+            email = decoded_token.get("email")
+
             if not apple_user_id:
                 raise HTTPException(status_code=400, detail="Invalid Apple token: missing user ID")
-            
-            # If email not in token, try user_info (first sign-in only)
+
             if not email and request.user_info:
-                email = request.user_info.get('email')
-            
+                email = request.user_info.get("email")
+
             logger.info(f"Apple Sign-In: user_id={apple_user_id}, email={email}")
-            
+
         except jwt.ExpiredSignatureError:
             raise HTTPException(status_code=400, detail="Apple token has expired")
-        except jwt.InvalidTokenError as e:
+        except jwt.JWTError as e:
             raise HTTPException(status_code=400, detail=f"Invalid Apple token: {str(e)}")
         except Exception as e:
             logger.error(f"Error verifying Apple token: {e}")
